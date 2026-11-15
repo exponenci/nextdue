@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   addMonthsClamped,
   expandOccurrences,
@@ -12,6 +13,9 @@ import {
 import { CATALOG, matchCatalog } from "../dist/catalog.mjs";
 
 const now = new Date("2026-11-15T12:00:00Z");
+const appSource = readFileSync(new URL("../dist/app.mjs", import.meta.url), "utf8");
+const htmlSource = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 
 test("strictly validates calendar dates", () => {
   assert.equal(parseISODate("2028-02-29")?.toISOString().slice(0, 10), "2028-02-29");
@@ -145,4 +149,32 @@ test("exports portable all-day ICS with alarms and stable identifiers", () => {
 test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup({ version: 99 }), /not supported/);
   assert.throws(() => validateBackup({ version: 4, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
+});
+
+test("starts on Plan and resets browser data on every full load in test mode", () => {
+  assert.match(appSource, /const TEST_MODE_RESET_ON_LOAD = true/);
+  assert.match(appSource, /let activeView = "plan"/);
+  assert.match(appSource, /if \(TEST_MODE_RESET_ON_LOAD\) await resetStoredStateForTestMode\(\)/);
+  assert.doesNotMatch(htmlSource, /data-view="today"/);
+  assert.match(htmlSource, /data-view="plan"/);
+});
+
+test("exposes safe possession deletion and keeps custom linked obligations", () => {
+  assert.match(htmlSource, /id="delete-asset"[^>]*hidden/);
+  assert.match(appSource, /if \(item\.provenance === "catalog"\) return \[\]/);
+  assert.match(appSource, /return \[\{ \.\.\.item, assetId: null \}\]/);
+  assert.match(appSource, /Remove this possession and its generated checklist/);
+});
+
+test("supports repeated country contexts and separates context periods from permit expiry", () => {
+  assert.match(appSource, /openCountryPicker\("setup-plan-new", "", setupDraft\.citizenships\)/);
+  assert.match(appSource, /Add another country context/);
+  assert.match(htmlSource, /name="startsOn"/);
+  assert.match(htmlSource, /name="endsOn"/);
+  assert.match(htmlSource, /name="printedExpiry"/);
+});
+
+test("country rules distinguish reviewed publications from planning contexts", () => {
+  assert.match(appSource, /does not claim a reviewed rule pack/);
+  assert.doesNotMatch(stylesSource, /\.coverage-card/);
 });

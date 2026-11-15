@@ -305,10 +305,6 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
 
 .catalog-toolbar { margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .catalog-toolbar > span { color: var(--ink-faint); font-size: 10px; }
-.coverage-card { margin: -9px 0 18px; padding: 13px 15px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 15px; border: 1px solid #d9d8f2; border-radius: 13px; background: var(--accent-pale); }
-.coverage-card strong { color: var(--accent-dark); font-size: 11px; }
-.coverage-card span { font-size: 11px; font-weight: 650; }
-.coverage-card small { grid-column: 2; color: var(--ink-soft); font-size: 9px; line-height: 1.4; }
 .catalog-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .catalog-tabs button { min-height: 37px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink-soft); background: rgba(255,255,255,.55); cursor: pointer; font-size: 11px; font-weight: 690; }
 .catalog-tabs button.active { color: #fff; border-color: var(--accent); background: var(--accent); }
@@ -365,6 +361,9 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
 .country-picker-button.selected { color: var(--ink); font-weight: 680; }
 .country-picker-button:hover { border-color: var(--accent); background: var(--accent-pale); }
 .country-picker-button .icon { color: var(--ink-faint); }
+.field-helper { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field-helper small { color: var(--ink-faint); font-size: 10px; line-height: 1.4; }
+.field-helper .text-button { flex: none; color: var(--accent); font-size: 10px; }
 .country-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .country-chip-edit { min-width: 180px; display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 4px; }
 .country-chip-edit .country-picker-button { min-height: 40px; border-radius: 999px; }
@@ -416,7 +415,7 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
 .plan-status-tabs button.active { color: #fff; border-color: var(--accent); background: var(--accent); }
 .active-filter-chips { margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 6px; }
 .active-filter-chips button { color: var(--accent-dark); border-color: #d9d8f2; background: var(--accent-pale); }
-.plan-filter-panel { margin-bottom: 18px; padding: 15px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-soft); }
+.plan-filter-panel { margin-bottom: 18px; padding: 15px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-soft); }
 .filter-panel-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
 .filter-panel-head strong { font-size: 13px; }
 .plan-filter-panel label > span { font-size: 10px; }
@@ -425,6 +424,9 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
 .catalog-summary { margin: -10px 0 18px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #d9d8f2; border-radius: 12px; background: var(--accent-pale); }
 .catalog-summary strong { color: var(--accent-dark); font-size: 12px; }
 .catalog-summary span { color: var(--ink-soft); font-size: 10px; }
+.catalog-scope-note, .test-mode-banner { margin: -10px 0 16px; padding: 12px 14px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid #d9d8f2; border-radius: 12px; color: var(--accent-dark); background: var(--accent-pale); }
+.catalog-scope-note p, .test-mode-banner p { margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+.test-mode-banner strong { display: block; margin-bottom: 3px; font-size: 12px; }
 .catalog-card.matched { border-color: #c6c5f0; box-shadow: 0 10px 32px rgba(76,79,215,.09); }
 .match-badge { padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; border-radius: 8px; color: var(--accent-dark); background: var(--accent-soft); font-size: 10px; font-weight: 740; }
 
@@ -454,7 +456,7 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
   .app-shell { display: block; }
   .app-main { grid-column: 1; }
   .view-root { width: min(100% - 32px, 690px); padding: 38px 0 110px; }
-  .mobile-nav { position: fixed; z-index: 10; inset: auto 0 0; height: 76px; padding: 6px 6px max(7px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(6, 1fr); align-items: end; border-top: 1px solid var(--line); background: rgba(255, 253, 249, .94); backdrop-filter: blur(16px); }
+  .mobile-nav { position: fixed; z-index: 10; inset: auto 0 0; height: 76px; padding: 6px 6px max(7px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(5, 1fr); align-items: end; border-top: 1px solid var(--line); background: rgba(255, 253, 249, .94); backdrop-filter: blur(16px); }
   .mobile-nav button { min-height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--ink-faint); border: 0; background: transparent; font-size: 9px; font-weight: 680; }
   .mobile-nav button.active { color: var(--accent); }
   .mobile-nav .icon { width: 20px; height: 20px; }
@@ -520,8 +522,6 @@ label > small { display: block; margin-top: 6px; color: var(--ink-faint); font-s
   .plan-toolbar-actions { display: grid; grid-template-columns: 1fr auto; }
   .plan-toolbar-actions .export-plan { width: 42px; padding: 0; font-size: 0; }
   .plan-filter-panel { position: fixed; z-index: 20; inset: auto 0 0; margin: 0; padding: 18px 18px calc(22px + env(safe-area-inset-bottom)); grid-template-columns: 1fr; border-radius: 22px 22px 0 0; box-shadow: 0 -20px 70px rgba(27,34,32,.2); }
-  .coverage-card { grid-template-columns: 1fr; }
-  .coverage-card small { grid-column: 1; }
   .relation-chip { align-items: flex-start; flex-direction: column; }
   .settings-card { padding: 19px; }
   .settings-form-footer { align-items: stretch; flex-direction: column; }

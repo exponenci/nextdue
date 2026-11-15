@@ -59,7 +59,7 @@
         <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span class="nav-label">Today</span></button>
         <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span class="nav-label">Plan</span></button>
         <button data-action="change-view" data-view="registry"><svg class="icon" aria-hidden="true"><use href="#icon-users"></use></svg><span class="nav-label">People &amp; assets</span></button>
-        <button data-action="change-view" data-view="catalog"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span class="nav-label">Country packs</span></button>
+        <button data-action="change-view" data-view="catalog"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span class="nav-label">Country rules</span></button>
       </nav>
       <div class="sidebar-bottom">
         <button class="local-badge" data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span id="local-badge-copy"><strong>Private by default</strong><small>Saved on this device</small></span></button>
@@ -116,7 +116,7 @@
     <form id="asset-form" class="modal-card">
       <input type="hidden" name="id">
       <header class="modal-header"><div><span class="eyebrow">Registry</span><h2 id="asset-dialog-title">Add possession</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
-      <div class="modal-body"><label><span>Type</span><select name="type"><option value="property">Property</option><option value="land">Land</option><option value="vehicle">Vehicle</option><option value="business">Business / self-employment</option><option value="pet">Pet</option><option value="other">Other</option></select></label><label><span>Name</span><input name="label" maxlength="100" placeholder="e.g. Tashkent apartment"></label><div class="form-grid two"><label><span>Country</span><select name="country"></select></label><label><span>Owner</span><select name="ownerId"></select></label></div></div>
+      <div class="modal-body"><label><span>Type</span><select name="type"><option value="property">Property</option><option value="land">Land</option><option value="vehicle">Vehicle</option><option value="business">Business / self-employment</option><option value="pet">Pet</option><option value="other">Other</option></select></label><label><span>Exact possession</span><input name="label" maxlength="100" placeholder="e.g. Toyota Camry or Tashkent apartment"></label><label><span>Details <small>optional</small></span><input name="details" maxlength="160" placeholder="e.g. 2022 hybrid, plate ending 42"></label><div class="form-grid two"><label><span>Country</span><select name="country"></select></label><label><span>Owner</span><select name="ownerId"></select></label></div></div>
       <footer class="modal-footer right"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-asset">Save possession</button></footer>
     </form>
   </dialog>
@@ -125,8 +125,26 @@
     <form id="person-form" class="modal-card">
       <input type="hidden" name="id">
       <header class="modal-header"><div><span class="eyebrow">Household</span><h2 id="person-dialog-title">Add person</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
-      <div class="modal-body"><label><span>Name or private label</span><input name="name" maxlength="80" placeholder="e.g. Child 1"></label><div class="form-grid two"><label><span>Citizenship</span><select name="citizenship"></select></label><label><span>Residence</span><select name="residence"></select></label></div></div>
+      <div class="modal-body"><label><span>Name or private label</span><input name="name" maxlength="80" placeholder="e.g. Child 1"></label><div class="form-grid two"><label><span>Initial citizenship</span><select name="citizenship"></select></label><label><span>Country</span><select name="residence"></select></label></div><div class="form-grid two"><label><span>Connection</span><select name="relationType"></select></label><label><span>Legal basis / status</span><select name="basis"></select></label></div><label><span>Valid until <small>optional</small></span><input type="date" name="validUntil"></label><small class="form-note">You can add more citizenships and country statuses from the person card.</small></div>
       <footer class="modal-footer right"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-person">Save person</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="country-dialog" class="modal small-modal">
+    <form id="country-form" class="modal-card">
+      <input type="hidden" name="personId"><input type="hidden" name="relationId"><input type="hidden" name="originalCountry">
+      <header class="modal-header"><div><span class="eyebrow">Person &amp; country</span><h2 id="country-dialog-title">Add country or status</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+      <div class="modal-body">
+        <label><span>Record as</span><select name="recordKind"><option value="relationship">Country relationship</option><option value="citizenship">Citizenship</option></select></label>
+        <label><span>Country</span><select name="country"></select></label>
+        <div id="country-relation-fields" class="form-stack">
+          <div class="form-grid two"><label><span>Connection</span><select name="type"></select></label><label><span>Legal basis / status</span><select name="basis"></select></label></div>
+          <label><span>Exact issued status or code <small>optional</small></span><input name="statusLabel" maxlength="120" placeholder="e.g. work patent, RVPO, Student Pass"></label>
+          <label><span>Valid until <small>optional</small></span><input type="date" name="validUntil"></label>
+          <label><span>Note <small>optional</small></span><textarea name="note" rows="2" maxlength="300" placeholder="Sponsor, employer, school, or what to verify"></textarea></label>
+        </div>
+      </div>
+      <footer class="modal-footer"><div><button type="button" id="delete-country-relation" class="danger-link" hidden><svg class="icon"><use href="#icon-trash"></use></svg> Remove</button></div><div><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-country-relation">Save</button></div></footer>
     </form>
   </dialog>
 

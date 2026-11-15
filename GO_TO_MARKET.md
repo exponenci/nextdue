@@ -59,7 +59,7 @@ Prioritize relocation agencies, universities, global-mobility employers, banks s
 ### Product-led referral
 
 - Invite a family member to share responsibility.
-- Share a starter pack without personal dates.
+- Share a country-rules checklist without personal dates.
 - Give both users one month of Plus when the invitee confirms three obligations.
 - Generate a printable moving checklist without identifiers.
 

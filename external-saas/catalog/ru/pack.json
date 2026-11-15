@@ -5,13 +5,13 @@
   "status": "reviewed",
   "defaultLocale": "ru",
   "supportedLocales": ["ru", "en", "uz-Latn"],
-  "disclaimer": "Maintained starter pack, not exhaustive legal or tax advice. Confirm applicability and exact dates with the relevant authority.",
+  "disclaimer": "Each rule records its official source and review date. Confirm rules marked as conditional with the relevant authority.",
   "items": [
     {
       "id": "ru-internal-passport-age-replacement",
       "category": "identity",
       "subjectKind": "person",
-      "applicability": { "eq": ["person.citizenship", "RU"] },
+      "applicability": { "contains": ["person.citizenships", "RU"] },
       "scheduleTemplate": { "kind": "age_milestones", "ages": [14, 20, 45], "graceDays": 90 },
       "defaultReminderInput": "180/90/30/7/0",
       "confidence": "high",
@@ -27,15 +27,15 @@
       "id": "ru-international-passport-expiry",
       "category": "identity",
       "subjectKind": "person",
-      "applicability": { "eq": ["person.citizenship", "RU"] },
+      "applicability": { "contains": ["person.citizenships", "RU"] },
       "scheduleTemplate": { "kind": "expiry_manual" },
       "defaultReminderInput": "365/180/120/90/30/7/0",
       "confidence": "high",
       "risk": "legal",
       "translations": {
-        "en": { "title": "International passport expiry", "summary": "Traditional passports are normally valid for 5 years and biometric passports for 10 years. Track the printed date.", "audience": "Russian citizen or traveler" },
-        "ru": { "title": "Срок действия загранпаспорта", "summary": "Паспорт старого образца обычно действует 5 лет, биометрический — 10 лет. Отслеживайте дату в документе.", "audience": "Гражданин РФ или путешественник" },
-        "uz-Latn": { "title": "Xorijga chiqish pasporti muddati", "summary": "Oddiy pasport odatda 5 yil, biometrik pasport 10 yil amal qiladi.", "audience": "Rossiya fuqarosi yoki sayohatchi" }
+        "en": { "title": "International passport expiry", "summary": "Traditional passports are normally valid for 5 years and biometric passports for 10 years. Track the printed date.", "audience": "Russian citizen" },
+        "ru": { "title": "Срок действия загранпаспорта", "summary": "Паспорт старого образца обычно действует 5 лет, биометрический — 10 лет. Отслеживайте дату в документе.", "audience": "Гражданин РФ" },
+        "uz-Latn": { "title": "Xorijga chiqish pasporti muddati", "summary": "Oddiy pasport odatda 5 yil, biometrik pasport 10 yil amal qiladi.", "audience": "Rossiya fuqarosi" }
       },
       "sources": [{ "authority": "Russian Federation", "title": "Federal Law 114-FZ, Article 10", "url": "https://www.consultant.ru/document/cons_doc_LAW_11376/3c9f5011b93965025dfc3c97e23f34b9dc019400/", "reviewedAt": "2026-11-15" }]
     },
@@ -91,7 +91,7 @@
       "id": "ru-foreigner-migration-registration",
       "category": "residence",
       "subjectKind": "person",
-      "applicability": { "all": [{ "eq": ["person.currentCountry", "RU"] }, { "not": { "eq": ["person.citizenship", "RU"] } }] },
+      "applicability": { "all": [{ "contains": ["person.countryRelationshipCountries", "RU"] }, { "not": { "contains": ["person.citizenships", "RU"] } }] },
       "scheduleTemplate": { "kind": "relative_manual", "days": 7, "workingDays": true },
       "defaultReminderInput": "7/3/1/0",
       "confidence": "high",
@@ -107,7 +107,7 @@
       "id": "ru-residence-permit-annual-confirmation",
       "category": "residence",
       "subjectKind": "person",
-      "applicability": { "all": [{ "eq": ["person.hasRussianResidencePermit", true] }, { "not": { "eq": ["person.citizenship", "RU"] } }] },
+      "applicability": { "all": [{ "in": ["person.countryRelationships.RU.legalBasis", ["rvp", "rvpo", "vnzh", "temporary_residence", "permanent_residence"]] }, { "not": { "contains": ["person.citizenships", "RU"] } }] },
       "scheduleTemplate": { "kind": "annual_anniversary", "windowDays": 60 },
       "defaultReminderInput": "60/30/14/7/1/0",
       "confidence": "high",

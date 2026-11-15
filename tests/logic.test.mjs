@@ -26,12 +26,41 @@ test("clamps month-end recurrence without timezone drift", () => {
 
 test("matches people and possessions in different countries", () => {
   const matches = matchCatalog({
-    people: [{ id: "me", citizenships: ["RU"], jurisdictions: [{ country: "RU", type: "residence" }] }],
-    assets: [{ id: "flat", type: "property", country: "UZ", ownerId: "me" }],
+    people: [{ id: "me", citizenships: ["RU"], jurisdictions: [{ country: "RU", type: "residence", basis: "citizen" }, { country: "UZ", type: "stay", basis: "tourist" }] }],
+    assets: [
+      { id: "flat-uz", type: "property", label: "Tashkent apartment", country: "UZ", ownerId: "me" },
+      { id: "flat-ru", type: "property", label: "Moscow apartment", country: "RU", ownerId: "me" },
+    ],
   });
   assert.ok(matches.some(({ entry }) => entry.id === "ru_internal_passport_age_replacement"));
-  assert.ok(matches.some(({ entry, assetId }) => entry.id === "uz_property_land_tax_installments" && assetId === "flat"));
+  assert.ok(matches.some(({ entry, assetId }) => entry.id === "uz_property_land_tax_installments" && assetId === "flat-uz"));
+  assert.ok(matches.some(({ entry, assetId }) => entry.id === "ru_individual_property_tax_notice" && assetId === "flat-ru"));
+  assert.ok(!matches.some(({ entry }) => entry.id === "uz_id_card_expiry"), "Uzbek residence must not unlock an Uzbek citizen ID");
   assert.equal(CATALOG.length, 12);
+});
+
+test("gates national documents by citizenship and leaves driving licences manual", () => {
+  const matches = matchCatalog({
+    people: [{ id: "me", citizenships: ["RU"], jurisdictions: [{ country: "UZ", type: "residence", basis: "temporary_residence" }] }],
+    assets: [],
+  });
+  const ids = new Set(matches.map(({ entry }) => entry.id));
+  assert.ok(ids.has("ru_internal_passport_age_replacement"));
+  assert.ok(ids.has("ru_international_passport_expiry"));
+  assert.ok(!ids.has("uz_id_card_expiry"));
+  assert.ok(!ids.has("ru_driving_licence_expiry"));
+  assert.ok(!ids.has("uz_driving_licence_expiry"));
+});
+
+test("matches a country obligation only to the relevant legal basis", () => {
+  const patentMatches = matchCatalog({
+    people: [{ id: "worker", citizenships: ["UZ"], jurisdictions: [{ country: "RU", type: "residence", basis: "work_patent" }] }], assets: [],
+  });
+  assert.ok(!patentMatches.some(({ entry }) => entry.id === "ru_residence_permit_annual_confirmation"));
+  const permitMatches = matchCatalog({
+    people: [{ id: "resident", citizenships: ["UZ"], jurisdictions: [{ country: "RU", type: "residence", basis: "vnzh" }] }], assets: [],
+  });
+  assert.ok(permitMatches.some(({ entry }) => entry.id === "ru_residence_permit_annual_confirmation"));
 });
 
 test("ships complete localized catalog records with stable unique ids", () => {
@@ -91,5 +120,5 @@ test("exports portable all-day ICS with alarms and stable identifiers", () => {
 
 test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup({ version: 99 }), /not supported/);
-  assert.throws(() => validateBackup({ version: 2, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
+  assert.throws(() => validateBackup({ version: 3, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
 });

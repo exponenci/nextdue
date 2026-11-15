@@ -14,7 +14,7 @@ Citizenship, residence, an asset's registration/location, and an obligation's ju
 
 ## Product promise
 
-> Based on my situation, show a maintained starter pack, explain why each item may apply, let me confirm the exact facts, and remind me early enough to act.
+> Based on my citizenships, legal statuses, and possessions, show the matching country rules, explain why each item may apply, let me confirm the exact facts, and remind me early enough to act.
 
 The runtime is deterministic. Catalog entries are versioned editorial data with translations, official sources, review dates, scope, confidence, and applicability warnings. AI may assist internal research but cannot publish or select legal-adjacent requirements automatically.
 

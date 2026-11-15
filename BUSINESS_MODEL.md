@@ -61,7 +61,7 @@ Never claim “complete compliance,” “never miss a legal deadline,” “off
 
 Use:
 
-- “maintained starter pack based on your situation”;
+- “country rules matched to your citizenships, legal statuses, and possessions”;
 - “official sources and review dates shown”;
 - “you confirm what applies”;
 - “one plan for dates across countries.”

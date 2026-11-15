@@ -7,7 +7,7 @@ The deployed private preview is a buildless browser application with no runtime 
 ```text
 people + jurisdictions + possessions
         ↓ deterministic catalog matcher
-source-backed starter pack
+source-backed matched country rules
         ↓ user confirms applicability and date
 tracked obligation
         ↓ recurrence + reminder offsets

@@ -84,9 +84,11 @@ export const people = appSchema.table("people", {
 export const assets = appSchema.table("assets", {
   subjectId: uuid("subject_id").primaryKey().references(() => subjects.id, { onDelete: "cascade" }),
   assetType: text("asset_type").notNull(),
+  assetSubtype: text("asset_subtype"),
   ownerSubjectId: uuid("owner_subject_id").references(() => subjects.id),
   registeredCountry: text("registered_country"),
   currentCountry: text("current_country"),
+  details: text("details"),
   attributes: jsonb("attributes").notNull().default({})
 });
 
@@ -95,9 +97,12 @@ export const subjectJurisdictions = appSchema.table("subject_jurisdictions", {
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
   subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
   countryCode: text("country_code").notNull(),
-  relation: text("relation").notNull().$type<"citizenship" | "residence" | "tax" | "registration" | "location" | "destination">(),
+  relation: text("relation").notNull().$type<"citizenship" | "residence" | "stay" | "tax" | "registration" | "location" | "destination" | "other">(),
+  legalBasis: text("legal_basis"),
+  exactStatus: text("exact_status"),
   startsOn: date("starts_on", { mode: "string" }),
-  endsOn: date("ends_on", { mode: "string" })
+  endsOn: date("ends_on", { mode: "string" }),
+  notes: text("notes")
 }, (table) => [index("subject_jurisdictions_household_idx").on(table.householdId)]);
 
 export const catalogPacks = appSchema.table("catalog_packs", {

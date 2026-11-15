@@ -16,15 +16,39 @@ const STORE_NAME = "state";
 const STATE_KEY = "app";
 
 const COUNTRIES = [
-  ["", "—"], ["RU", "Russia"], ["UZ", "Uzbekistan"], ["KZ", "Kazakhstan"], ["AM", "Armenia"],
-  ["GE", "Georgia"], ["AE", "United Arab Emirates"], ["DE", "Germany"], ["ES", "Spain"], ["FR", "France"],
-  ["GB", "United Kingdom"], ["PT", "Portugal"], ["US", "United States"], ["OTHER", "Other"],
+  ["", "—"], ["RU", "Russia"], ["UZ", "Uzbekistan"], ["KZ", "Kazakhstan"], ["KG", "Kyrgyzstan"], ["TJ", "Tajikistan"],
+  ["AM", "Armenia"], ["AZ", "Azerbaijan"], ["BY", "Belarus"], ["MD", "Moldova"], ["GE", "Georgia"], ["TM", "Turkmenistan"],
+  ["DE", "Germany"], ["FR", "France"], ["ES", "Spain"], ["PT", "Portugal"], ["IT", "Italy"], ["NL", "Netherlands"],
+  ["BE", "Belgium"], ["AT", "Austria"], ["CH", "Switzerland"], ["CZ", "Czechia"], ["PL", "Poland"], ["IE", "Ireland"],
+  ["GB", "United Kingdom"], ["SE", "Sweden"], ["NO", "Norway"], ["FI", "Finland"], ["DK", "Denmark"], ["GR", "Greece"],
+  ["CY", "Cyprus"], ["EE", "Estonia"], ["AE", "United Arab Emirates"], ["JP", "Japan"], ["KR", "South Korea"], ["CN", "China"],
+  ["HK", "Hong Kong"], ["SG", "Singapore"], ["TH", "Thailand"], ["MY", "Malaysia"], ["ID", "Indonesia"], ["VN", "Vietnam"],
+  ["PH", "Philippines"], ["TW", "Taiwan"], ["US", "United States"], ["OTHER", "Other"],
 ];
 
 const UZ_COUNTRY_NAMES = {
-  KZ: "Qozog‘iston", AM: "Armaniston", GE: "Gruziya", AE: "Birlashgan Arab Amirliklari",
-  DE: "Germaniya", ES: "Ispaniya", FR: "Fransiya", GB: "Buyuk Britaniya",
-  PT: "Portugaliya", US: "Amerika Qo‘shma Shtatlari",
+  KZ: "Qozog‘iston", KG: "Qirg‘iziston", TJ: "Tojikiston", AM: "Armaniston", AZ: "Ozarbayjon", BY: "Belarus", MD: "Moldova", GE: "Gruziya", TM: "Turkmaniston",
+  AE: "Birlashgan Arab Amirliklari", DE: "Germaniya", ES: "Ispaniya", FR: "Fransiya", IT: "Italiya", NL: "Niderlandiya", BE: "Belgiya", AT: "Avstriya",
+  CH: "Shveytsariya", CZ: "Chexiya", PL: "Polsha", IE: "Irlandiya", GB: "Buyuk Britaniya", SE: "Shvetsiya", NO: "Norvegiya", FI: "Finlyandiya",
+  DK: "Daniya", GR: "Gretsiya", CY: "Kipr", EE: "Estoniya", PT: "Portugaliya", JP: "Yaponiya", KR: "Janubiy Koreya", CN: "Xitoy", HK: "Gonkong",
+  SG: "Singapur", TH: "Tailand", MY: "Malayziya", ID: "Indoneziya", VN: "Vyetnam", PH: "Filippin", TW: "Tayvan", US: "Amerika Qo‘shma Shtatlari",
+};
+
+const LEGAL_BASES = {
+  citizen: ["Citizen", "Гражданство", "Fuqarolik"], visa_free: ["Visa-free stay", "Безвизовое пребывание", "Vizasiz qolish"],
+  tourist: ["Tourism / visitor", "Туризм / гость", "Turizm / mehmon"], work_patent: ["Work patent", "Трудовой патент", "Mehnat patenti"],
+  work_permit: ["Work permit", "Разрешение на работу", "Ish ruxsati"], employment: ["Employment", "Работа", "Ish"],
+  study: ["Study", "Учёба", "O‘qish"], family: ["Family / relative", "Семья / родственник", "Oila / qarindosh"],
+  rvp: ["Temporary residence permit (RVP)", "РВП", "Vaqtinchalik yashash ruxsati (RVP)"], rvpo: ["Education temporary residence (RVPO)", "РВПО", "Ta’lim uchun vaqtinchalik yashash (RVPO)"],
+  vnzh: ["Residence permit (VNZH)", "ВНЖ", "Yashash guvohnomasi (VNZH)"], temporary_residence: ["Temporary residence", "Временное проживание", "Vaqtinchalik yashash"],
+  permanent_residence: ["Permanent residence", "Постоянное проживание", "Doimiy yashash"], refugee: ["Refugee / protection", "Убежище / защита", "Boshpana / himoya"],
+  business: ["Business / investment", "Бизнес / инвестиции", "Biznes / investitsiya"], digital_nomad: ["Digital nomad", "Цифровой кочевник", "Raqamli ko‘chmanchi"],
+  other: ["Other basis", "Другое основание", "Boshqa asos"], unspecified: ["Not selected", "Не выбрано", "Tanlanmagan"],
+};
+
+const RELATION_TYPES = {
+  residence: ["Lives in", "Живёт в", "Yashaydi"], stay: ["Stays / has status in", "Пребывает / имеет статус", "Qoladi / maqomga ega"],
+  destination: ["Plans to travel or move to", "Планирует поездку или переезд", "Safar yoki ko‘chishni rejalaydi"], other: ["Other connection", "Другая связь", "Boshqa aloqa"],
 };
 
 const ASSET_TYPES = {
@@ -75,11 +99,40 @@ function migrateV1(value) {
   };
 }
 
+function migrateState(value) {
+  const migrated = migrateV1(value);
+  if (!migrated || migrated.version === SCHEMA_VERSION) return migrated;
+  if (migrated.version !== 2) return migrated;
+  return {
+    ...migrated,
+    version: SCHEMA_VERSION,
+    people: (migrated.people || []).map((person) => ({
+      ...person,
+      citizenships: [...new Set(person.citizenships || [])],
+      jurisdictions: (person.jurisdictions || []).map((relation) => ({
+        id: relation.id || createId("relation"),
+        country: relation.country,
+        type: relation.type === "relevant" ? "other" : (relation.type || "residence"),
+        basis: relation.basis || ((person.citizenships || []).includes(relation.country) ? "citizen" : "unspecified"),
+        validUntil: relation.validUntil || "",
+        statusLabel: relation.statusLabel || "",
+        note: relation.note || "",
+      })),
+    })),
+    assets: (migrated.assets || []).map((asset) => ({ ...asset, details: asset.details || "" })),
+  };
+}
+
 let state = defaultState();
 let setupStep = 1;
-let setupDraft = { locale: "en", goal: "move", citizenship: "RU", residence: "RU", extraCountry: "UZ", assets: [] };
+let setupDraft = {
+  locale: "en", goal: "move", citizenships: ["RU"],
+  jurisdictions: [{ id: "draft-residence", country: "RU", type: "residence", basis: "citizen", validUntil: "", statusLabel: "", note: "" }],
+  assets: [],
+};
 let activeView = "today";
 let dbMode = "indexeddb";
+let planFilters = { country: "all", assetType: "all", assetId: "all" };
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -99,10 +152,10 @@ async function loadState() {
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
     });
     db.close();
-    return value ? validateBackup(migrateV1(value)) : defaultState();
+    return value ? validateBackup(migrateState(value)) : defaultState();
   } catch {
     dbMode = "localstorage";
-    try { const value = localStorage.getItem("nextdue-state"); return value ? validateBackup(migrateV1(JSON.parse(value))) : defaultState(); } catch { return defaultState(); }
+    try { const value = localStorage.getItem("nextdue-state"); return value ? validateBackup(migrateState(JSON.parse(value))) : defaultState(); } catch { return defaultState(); }
   }
 }
 
@@ -120,6 +173,11 @@ function icon(name, size = 20) { return `<svg class="icon" width="${size}" heigh
 function escapeHTML(value) { return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#039;", '"': "&quot;" })[char]); }
 function tx(en, ru, uz) { return state.locale === "ru" ? ru : state.locale === "uz-Latn" ? (uz || en) : en; }
 function assetTypeLabel(type, locale = state.locale) { const meta = ASSET_TYPES[type] || ASSET_TYPES.other; return locale === "ru" ? meta.ru : locale === "uz-Latn" ? meta.uz : meta.en; }
+function localizedTuple(tuple, locale = state.locale) { return locale === "ru" ? tuple[1] : locale === "uz-Latn" ? tuple[2] : tuple[0]; }
+function legalBasisLabel(value, locale = state.locale) { return localizedTuple(LEGAL_BASES[value] || LEGAL_BASES.unspecified, locale); }
+function relationTypeLabel(value, locale = state.locale) { return localizedTuple(RELATION_TYPES[value] || RELATION_TYPES.other, locale); }
+function legalBasisOptions(selected) { return Object.entries(LEGAL_BASES).map(([value, labels]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(localizedTuple(labels))}</option>`).join(""); }
+function relationTypeOptions(selected) { return Object.entries(RELATION_TYPES).map(([value, labels]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(localizedTuple(labels))}</option>`).join(""); }
 function countryName(code, locale = state.locale) {
   if (!code) return tx("Not set", "Не указано", "Ko‘rsatilmagan");
   if (code === "OTHER") return locale === "ru" ? "Другая" : locale === "uz-Latn" ? "Boshqa" : "Other";
@@ -139,6 +197,12 @@ function assetName(id) { return displayAssetLabel(state.assets.find((asset) => a
 function itemTitle(item) { const entry = item.catalogId ? CATALOG.find((catalogItem) => catalogItem.id === item.catalogId) : null; return entry ? localized(entry.title, state.locale) : item.title; }
 function announce(message) { const toast = document.querySelector("#toast"); toast.textContent = message; toast.classList.add("show"); window.setTimeout(() => toast.classList.remove("show"), 2800); }
 function setLanguage(locale) { state.locale = locale; document.documentElement.lang = locale === "uz-Latn" ? "uz" : locale; }
+function syncActiveCountries() {
+  state.profile.activeCountries = [...new Set([
+    ...state.people.flatMap((person) => [...(person.citizenships || []), ...(person.jurisdictions || []).map((relation) => relation.country)]),
+    ...state.assets.map((asset) => asset.country), ...state.items.map((item) => item.country),
+  ].filter(Boolean))];
+}
 
 function setDocumentTitle() {
   const titles = { today: t(state.locale, "today"), plan: t(state.locale, "plan"), registry: t(state.locale, "registry"), catalog: t(state.locale, "catalog"), settings: t(state.locale, "settings") };
@@ -207,44 +271,68 @@ function updateStaticLabels() {
 
   setText("#asset-dialog .eyebrow", t(state.locale, "registry"));
   setFormLabel("#asset-form", "type", tx("Type", "Тип", "Turi"));
-  setFormLabel("#asset-form", "label", tx("Name", "Название", "Nomi"));
+  setFormLabel("#asset-form", "label", tx("Exact possession", "Конкретный объект", "Aniq mulk"));
+  setFormLabel("#asset-form", "details", tx("Details", "Детали", "Tafsilotlar"));
   setFormLabel("#asset-form", "country", t(state.locale, "country"));
   setFormLabel("#asset-form", "ownerId", t(state.locale, "owner"));
-  setPlaceholder('#asset-form [name="label"]', tx("e.g. Tashkent apartment", "например, квартира в Ташкенте", "masalan, Toshkentdagi kvartira"));
+  setPlaceholder('#asset-form [name="label"]', tx("e.g. Toyota Camry or Tashkent apartment", "например, Toyota Camry или квартира в Ташкенте", "masalan, Toyota Camry yoki Toshkentdagi kvartira"));
+  setPlaceholder('#asset-form [name="details"]', tx("e.g. 2022 hybrid, plate ending 42", "например, гибрид 2022 года, номер оканчивается на 42", "masalan, 2022 gibrid, raqam oxiri 42"));
   replaceOptions(document.querySelector('#asset-form [name="type"]'), Object.keys(ASSET_TYPES).map((value) => [value, assetTypeLabel(value)]));
   setText('#asset-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#asset-form [data-action="save-asset"]', tx("Save possession", "Сохранить имущество", "Mulkni saqlash"));
 
   setText("#person-dialog .eyebrow", tx("Household", "Семья", "Oila"));
   setFormLabel("#person-form", "name", tx("Name or private label", "Имя или приватная метка", "Ism yoki maxfiy belgi"));
-  setFormLabel("#person-form", "citizenship", tx("Citizenship", "Гражданство", "Fuqarolik"));
-  setFormLabel("#person-form", "residence", tx("Residence", "Проживание", "Yashash joyi"));
+  setFormLabel("#person-form", "citizenship", tx("Initial citizenship", "Первое гражданство", "Birinchi fuqarolik"));
+  setFormLabel("#person-form", "residence", tx("Country", "Страна", "Mamlakat"));
+  setFormLabel("#person-form", "relationType", tx("Connection", "Связь со страной", "Mamlakat bilan aloqa"));
+  setFormLabel("#person-form", "basis", tx("Legal basis / status", "Правовое основание / статус", "Qonuniy asos / maqom"));
+  setFormLabel("#person-form", "validUntil", tx("Valid until", "Действует до", "Amal qiladi"));
   setPlaceholder('#person-form [name="name"]', tx("e.g. Child 1", "например, Ребёнок 1", "masalan, Bola 1"));
   setText('#person-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#person-form [data-action="save-person"]', tx("Save person", "Сохранить человека", "Shaxsni saqlash"));
+
+  setText("#country-dialog .eyebrow", tx("Person & country", "Человек и страна", "Shaxs va mamlakat"));
+  setFormLabel("#country-form", "recordKind", tx("Record as", "Тип связи", "Yozuv turi"));
+  setFormLabel("#country-form", "country", t(state.locale, "country"));
+  setFormLabel("#country-form", "type", tx("Connection", "Связь со страной", "Mamlakat bilan aloqa"));
+  setFormLabel("#country-form", "basis", tx("Legal basis / status", "Правовое основание / статус", "Qonuniy asos / maqom"));
+  setFormLabel("#country-form", "statusLabel", tx("Exact issued status or code", "Точное название статуса или код", "Berilgan maqom yoki kod"));
+  setFormLabel("#country-form", "validUntil", tx("Valid until", "Действует до", "Amal qiladi"));
+  setFormLabel("#country-form", "note", tx("Note", "Примечание", "Izoh"));
+  replaceOptions(document.querySelector('#country-form [name="recordKind"]'), [["relationship", tx("Country relationship", "Связь со страной", "Mamlakat bilan aloqa")], ["citizenship", tx("Citizenship", "Гражданство", "Fuqarolik")]]);
+  setText('#country-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
+  setText('#country-form [data-action="save-country-relation"]', t(state.locale, "save"));
+  setText("#delete-country-relation", tx("Remove", "Удалить", "Olib tashlash"));
 }
 
 function renderSetup() {
   state.locale = setupDraft.locale;
   document.querySelector("#setup-root").innerHTML = `
     <header class="setup-header"><a class="brand" href="#" data-action="setup-home"><span class="brand-mark">${icon("layers", 18)}</span><span>NextDue</span></a><span class="catalog-version">${t(state.locale, "sourceBacked")} · ${CATALOG_VERSION}</span></header>
-    <main class="setup-main setup-v2"><section class="setup-intro"><span class="eyebrow">${tx("Life admin across borders", "Документы и обязанности между странами", "Mamlakatlararo hujjatlar va majburiyatlar")}</span><h1>${tx("One household. Many countries. No blind spots.", "Одна семья. Несколько стран. Всё под контролем.", "Bitta oila. Bir nechta mamlakat. Hammasi nazoratda.")}</h1><p>${tx("Map people, countries, and possessions. Then review maintained starter packs with sources—never an AI guess.", "Добавьте людей, страны и имущество. Затем проверьте поддерживаемые пакеты с источниками — без AI-догадок.", "Odamlar, mamlakatlar va mulkni kiriting. Keyin manbali paketlarni tekshiring.")}</p><div class="scenario-card"><strong>${tx("Example", "Пример", "Misol")}</strong><p>${tx("I live in Russia, own a flat in Uzbekistan, and manage two children’s documents.", "Я живу в России, владею квартирой в Узбекистане и слежу за документами двух детей.", "Men Rossiyada yashayman, O‘zbekistonda uyim bor va ikki bolaning hujjatlarini boshqaraman.")}</p></div></section>
+    <main class="setup-main setup-v2"><section class="setup-intro"><span class="eyebrow">${tx("Life admin across borders", "Документы и обязанности между странами", "Mamlakatlararo hujjatlar va majburiyatlar")}</span><h1>${tx("People, statuses, and assets—country by country.", "Люди, статусы и имущество — по каждой стране.", "Odamlar, maqomlar va mulk — har bir mamlakat bo‘yicha.")}</h1><p>${tx("Record citizenships, how each person legally stays in a country, and every named possession. NextDue matches only the rules that fit those facts.", "Укажите гражданства, основания пребывания и каждый конкретный объект имущества. NextDue покажет только подходящие правила.", "Fuqarolik, mamlakatda qolish asosi va har bir aniq mulkni kiriting. NextDue faqat mos qoidalarni ko‘rsatadi.")}</p></section>
     <section class="setup-card"><div class="setup-progress-row"><span>${tx("Build your registry", "Создайте реестр", "Reyestr yarating")}</span><span>${setupStep}/4</span></div><div class="progress-track"><span style="width:${setupStep * 25}%"></span></div>${renderSetupStep()}</section></main>`;
 }
 
 function renderSetupStep() {
   if (setupStep === 1) return `<div class="setup-copy"><p class="step-kicker">${tx("Language & focus", "Язык и цель", "Til va maqsad")}</p><h2>${tx("How should NextDue work for you?", "Как NextDue должен работать для вас?", "NextDue siz uchun qanday ishlashi kerak?")}</h2></div><label><span>${t(state.locale, "interfaceLanguage")}</span><select id="setup-locale">${SUPPORTED_LOCALES.map((locale) => `<option value="${locale.code}" ${setupDraft.locale === locale.code ? "selected" : ""}>${locale.label}</option>`).join("")}</select></label><div class="choice-stack compact-choices">${Object.entries(GOALS).map(([value, labels]) => `<button class="choice-card ${setupDraft.goal === value ? "selected" : ""}" data-action="choose-goal" data-value="${value}"><span class="choice-icon">${icon(value === "move" ? "globe" : value === "travel" ? "plane" : "check-circle")}</span><span><strong>${state.locale === "ru" ? labels[1] : state.locale === "uz-Latn" ? labels[2] : labels[0]}</strong></span><span class="radio-dot"></span></button>`).join("")}</div>${setupActions(false)}`;
-  if (setupStep === 2) return `<div class="setup-copy"><p class="step-kicker">${tx("People & jurisdictions", "Люди и юрисдикции", "Odamlar va yurisdiksiyalar")}</p><h2>${tx("Where does your life happen?", "С какими странами вы связаны?", "Hayotingiz qaysi mamlakatlar bilan bog‘liq?")}</h2><p>${tx("A person can have one citizenship and live elsewhere. You can add more people later.", "Гражданство и страна проживания могут различаться. Других людей можно добавить позже.", "Fuqarolik va yashash mamlakati farq qilishi mumkin.")}</p></div><form id="setup-country-form" class="context-form"><div class="form-grid two"><label><span>${tx("My citizenship", "Моё гражданство", "Fuqaroligim")}</span><select name="citizenship">${countryOptions(setupDraft.citizenship)}</select></label><label><span>${tx("I currently live in", "Сейчас я живу в", "Hozir yashayman")}</span><select name="residence">${countryOptions(setupDraft.residence)}</select></label></div><label><span>${tx("Another relevant country", "Ещё одна важная страна", "Yana bir muhim mamlakat")}</span><select name="extraCountry">${countryOptions(setupDraft.extraCountry)}</select></label></form>${setupActions(true)}`;
-  if (setupStep === 3) return `<div class="setup-copy"><p class="step-kicker">${tx("Possessions by country", "Имущество по странам", "Mulk mamlakatlar bo‘yicha")}</p><h2>${tx("What do you manage, and where?", "Чем вы управляете и в какой стране?", "Nimani va qayerda boshqarasiz?")}</h2><p>${tx("Each possession gets its own country. Add several later if needed.", "У каждого объекта своя страна. Позже можно добавить несколько объектов одного типа.", "Har bir mulkning o‘z mamlakati bor.")}</p></div><div class="asset-setup-list">${Object.entries(ASSET_TYPES).filter(([type]) => type !== "other").map(([type, meta]) => { const selected = setupDraft.assets.find((asset) => asset.type === type); return `<div class="asset-setup-row ${selected ? "selected" : ""}"><label class="asset-toggle"><input type="checkbox" data-setup-asset="${type}" ${selected ? "checked" : ""}><span class="suggestion-check">${icon("check", 15)}</span><span class="item-icon category-${type === "vehicle" ? "transport" : type === "business" ? "tax" : type}">${icon(meta.icon, 18)}</span><strong>${assetTypeLabel(type)}</strong></label><select data-setup-asset-country="${type}" ${selected ? "" : "disabled"}>${countryOptions(selected?.country || setupDraft.extraCountry || setupDraft.residence, false)}</select></div>`; }).join("")}</div>${setupActions(true)}`;
+  if (setupStep === 2) return `<div class="setup-copy"><p class="step-kicker">${tx("Citizenships & legal status", "Гражданства и основания пребывания", "Fuqarolik va qonuniy maqom")}</p><h2>${tx("How is this person connected to each country?", "Как человек связан с каждой страной?", "Shaxs har bir mamlakat bilan qanday bog‘langan?")}</h2></div>
+    <div class="setup-subsection"><div class="mini-section-heading"><strong>${tx("Citizenships", "Гражданства", "Fuqaroliklar")}</strong><button class="text-button" data-action="setup-add-citizenship">${icon("plus", 15)} ${tx("Add", "Добавить", "Qo‘shish")}</button></div>
+    <div class="dynamic-rows">${setupDraft.citizenships.map((country, index) => `<div class="dynamic-row"><select data-setup-citizenship-index="${index}">${countryOptions(country, false)}</select><button class="icon-button" data-action="setup-remove-citizenship" data-index="${index}" aria-label="${tx("Remove citizenship", "Удалить гражданство", "Fuqarolikni olib tashlash")}">${icon("close", 16)}</button></div>`).join("")}</div></div>
+    <div class="setup-subsection"><div class="mini-section-heading"><strong>${tx("Countries where I live, stay, or plan to move", "Страны проживания, пребывания или переезда", "Yashash, qolish yoki ko‘chish mamlakatlari")}</strong><button class="text-button" data-action="setup-add-jurisdiction">${icon("plus", 15)} ${tx("Add country", "Добавить страну", "Mamlakat qo‘shish")}</button></div>
+    <div class="dynamic-rows">${setupDraft.jurisdictions.map((relation, index) => `<div class="dynamic-row relation-row"><select data-setup-jurisdiction-index="${index}" data-field="country">${countryOptions(relation.country, false)}</select><select data-setup-jurisdiction-index="${index}" data-field="type">${relationTypeOptions(relation.type)}</select><select data-setup-jurisdiction-index="${index}" data-field="basis">${legalBasisOptions(relation.basis)}</select><label class="compact-date"><span>${tx("Valid until", "Действует до", "Amal qiladi")}</span><input type="date" value="${escapeHTML(relation.validUntil || "")}" data-setup-jurisdiction-index="${index}" data-field="validUntil"></label><button class="icon-button" data-action="setup-remove-jurisdiction" data-index="${index}" aria-label="${tx("Remove country", "Удалить страну", "Mamlakatni olib tashlash")}">${icon("close", 16)}</button></div>`).join("")}</div></div>${setupActions(true)}`;
+  if (setupStep === 3) return `<div class="setup-copy"><p class="step-kicker">${tx("Named possessions", "Конкретное имущество", "Aniq mulklar")}</p><h2>${tx("Add every object separately.", "Добавьте каждый объект отдельно.", "Har bir obyektni alohida qo‘shing.")}</h2><p>${tx("Two cars or homes can have different countries, owners, and obligations.", "У двух машин или квартир могут быть разные страны, владельцы и обязанности.", "Ikki avtomobil yoki uy turli mamlakat, egasi va majburiyatlarga ega bo‘lishi mumkin.")}</p></div>
+    <div class="dynamic-rows asset-draft-list">${setupDraft.assets.map((asset, index) => `<div class="dynamic-row asset-draft-row"><select data-setup-asset-index="${index}" data-field="type">${Object.keys(ASSET_TYPES).map((type) => `<option value="${type}" ${asset.type === type ? "selected" : ""}>${assetTypeLabel(type)}</option>`).join("")}</select><input value="${escapeHTML(asset.label || "")}" data-setup-asset-index="${index}" data-field="label" placeholder="${tx("e.g. Toyota Camry", "например, Toyota Camry", "masalan, Toyota Camry")}"><select data-setup-asset-index="${index}" data-field="country">${countryOptions(asset.country, false)}</select><button class="icon-button" data-action="setup-remove-asset" data-index="${index}" aria-label="${tx("Remove possession", "Удалить имущество", "Mulkni olib tashlash")}">${icon("close", 16)}</button></div>`).join("")}</div>
+    <button class="secondary-button full" data-action="setup-add-asset">${icon("plus", 16)} ${tx("Add another possession", "Добавить ещё имущество", "Yana mulk qo‘shish")}</button>${setupActions(true)}`;
   const graph = graphFromDraft(); const matches = matchCatalog(graph);
-  return `<div class="setup-copy"><p class="step-kicker">${t(state.locale, "sourceBacked")}</p><h2>${t(state.locale, "starterPack")}</h2><p>${t(state.locale, "notGenerated")}</p></div><div class="pack-summary">${[...new Set(matches.map((match) => match.entry.country))].map((country) => `<span>${COUNTRY_META[country]?.flag || ""} ${countryName(country)} · ${matches.filter((m) => m.entry.country === country).length}</span>`).join("")}</div><div class="suggestion-list catalog-suggestions">${matches.slice(0, 9).map((match) => catalogSuggestion(match)).join("")}</div><p class="legal-note">${t(state.locale, "catalogDisclaimer")}</p>${setupActions(true, true)}`;
+  return `<div class="setup-copy"><p class="step-kicker">${t(state.locale, "sourceBacked")}</p><h2>${tx("Review matched rules", "Проверьте подходящие правила", "Mos qoidalarni tekshiring")}</h2><p>${tx("Matches use citizenship, legal basis, and the country of each possession.", "Подбор учитывает гражданство, основание пребывания и страну каждого объекта.", "Tanlov fuqarolik, qonuniy asos va har bir mulk mamlakatini hisobga oladi.")}</p></div><div class="pack-summary">${[...new Set(matches.map((match) => match.entry.country))].map((country) => `<span>${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)} · ${matches.filter((m) => m.entry.country === country).length}</span>`).join("")}</div>${matches.length ? `<div class="suggestion-list catalog-suggestions">${matches.slice(0, 12).map((match) => catalogSuggestion(match)).join("")}</div>` : `<div class="mini-empty"><p>${tx("No country rules match yet. You can still add custom obligations after setup.", "Подходящих правил пока нет. После настройки можно добавить свои обязанности.", "Hozircha mos qoidalar yo‘q. Sozlashdan keyin o‘z majburiyatlaringizni qo‘shishingiz mumkin.")}</p></div>`}${setupActions(true, true)}`;
 }
 
 function setupActions(back, finish = false) { return `<div class="setup-actions">${back ? `<button class="secondary-button" data-action="setup-back">${tx("Back", "Назад", "Orqaga")}</button>` : "<span></span>"}<button class="primary-button" data-action="${finish ? "finish-setup" : "setup-next"}">${finish ? tx("Create my registry", "Создать мой реестр", "Reyestrimni yaratish") : tx("Continue", "Продолжить", "Davom etish")} ${icon("arrow-right", 17)}</button></div>`; }
 function catalogSuggestion(match) { const entry = match.entry; return `<label class="suggestion-row rich"><input type="checkbox" name="catalog-suggestion" value="${entry.id}|${match.subjectId || ""}|${match.assetId || ""}" checked><span class="suggestion-check">${icon("check", 15)}</span><span><strong>${escapeHTML(localized(entry.title, state.locale))}</strong><small>${COUNTRY_META[entry.country]?.flag || ""} ${escapeHTML(countryName(entry.country))} · ${escapeHTML(localized(entry.audience, state.locale))}</small></span><span class="source-tag">${CATALOG_REVIEWED_AT}</span></label>`; }
 function graphFromDraft() {
-  const person = { id: "person-me", name: tx("Me", "Я", "Men"), relationship: "self", citizenships: setupDraft.citizenship ? [setupDraft.citizenship] : [], jurisdictions: [setupDraft.residence, setupDraft.extraCountry].filter(Boolean).map((country, index) => ({ country, type: index === 0 ? "residence" : "relevant" })) };
-  const assets = setupDraft.assets.map((asset, index) => ({ id: `asset-${asset.type}-${index}`, type: asset.type, label: assetTypeLabel(asset.type), country: asset.country, ownerId: person.id }));
+  const person = { id: "person-me", name: tx("Me", "Я", "Men"), relationship: "self", citizenships: [...new Set(setupDraft.citizenships.filter(Boolean))], jurisdictions: setupDraft.jurisdictions.filter((relation) => relation.country).map((relation) => ({ ...relation, id: relation.id || createId("relation") })) };
+  const assets = setupDraft.assets.filter((asset) => asset.country).map((asset, index) => ({ id: asset.id || `asset-${asset.type}-${index}`, type: asset.type, label: String(asset.label || "").trim() || assetTypeLabel(asset.type), country: asset.country, ownerId: person.id, details: "" }));
   return { people: [person], assets };
 }
 
@@ -252,10 +340,10 @@ async function finishSetup() {
   const graph = graphFromDraft(); const selected = new Set([...document.querySelectorAll('input[name="catalog-suggestion"]:checked')].map((input) => input.value));
   const matches = matchCatalog(graph).filter((match) => selected.has(`${match.entry.id}|${match.subjectId || ""}|${match.assetId || ""}`));
   state = defaultState(); state.onboarded = true; state.locale = setupDraft.locale;
-  state.profile = { goal: setupDraft.goal, activeCountries: [...new Set([setupDraft.citizenship, setupDraft.residence, setupDraft.extraCountry, ...graph.assets.map((asset) => asset.country)].filter(Boolean))] };
+  state.profile = { goal: setupDraft.goal, activeCountries: [] };
   state.people = graph.people; state.assets = graph.assets;
   state.items = matches.map((match) => makeItemFromCatalog(match, { title: localized(match.entry.title, state.locale), reason: localized(match.entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: graph.people.find((person) => person.id === match.subjectId)?.name || "" }));
-  await persistState(); activeView = "today"; render(); announce(tx("Registry created from reviewed country packs.", "Реестр создан из проверенных пакетов стран.", "Reyestr tekshirilgan mamlakat paketlaridan yaratildi."));
+  syncActiveCountries(); await persistState(); activeView = "today"; render(); announce(tx("Registry created.", "Реестр создан.", "Reyestr yaratildi."));
 }
 
 function viewHeader(eyebrow, title, copy, actions = "item") {
@@ -297,7 +385,7 @@ function validationMessage(message) {
 
 function itemCard(item, calendar = true) {
   const status = getItemStatus(item); const meta = CATEGORY_META[item.category] || CATEGORY_META.custom; const title = itemTitle(item);
-  return `<article class="item-card scope-card"><div class="item-icon category-${item.category}">${icon(meta.icon, 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-${status.tone}">${statusLabel(status)}</span></div><p class="scope-line"><span>${COUNTRY_META[item.country]?.flag || "🌐"} ${escapeHTML(countryName(item.country))}</span><span>${escapeHTML(personName(item.subjectId))}</span>${item.assetId ? `<span>${escapeHTML(assetName(item.assetId))}</span>` : ""}</p><p class="item-meta">${escapeHTML(scheduleDescription(item))} · ${escapeHTML(item.reminderInput || formatReminderSequence(item.reminderOffsets || []))}</p><p class="next-action">${icon("arrow-bend", 15)} ${escapeHTML(nextActionLabel(item))}</p></div><div class="item-actions">${calendar && parseISODate(item.schedule?.date) ? `<button class="icon-button" data-action="calendar-menu" data-id="${item.id}" aria-label="${tx("Calendar options for", "Параметры календаря для", "Kalendar parametrlari")}: ${escapeHTML(title)}">${icon("calendar", 18)}</button>` : ""}<button class="icon-button" data-action="edit-item" data-id="${item.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(title)}">${icon("edit", 18)}</button></div></article>`;
+  return `<article class="item-card scope-card"><div class="item-icon category-${item.category}">${icon(meta.icon, 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-${status.tone}">${statusLabel(status)}</span></div><p class="scope-line"><span>${COUNTRY_META[item.country]?.flag || "🌐"} ${escapeHTML(countryName(item.country))}</span><span>${escapeHTML(personName(item.subjectId))}</span>${item.assetId ? `<span>${escapeHTML(assetName(item.assetId))}</span>` : ""}</p><p class="item-meta">${escapeHTML(scheduleDescription(item))}</p><p class="next-action">${icon("arrow-bend", 15)} ${escapeHTML(nextActionLabel(item))}</p></div><div class="item-actions">${calendar && parseISODate(item.schedule?.date) ? `<button class="icon-button" data-action="calendar-menu" data-id="${item.id}" aria-label="${tx("Calendar options for", "Параметры календаря для", "Kalendar parametrlari")}: ${escapeHTML(title)}">${icon("calendar", 18)}</button>` : ""}<button class="icon-button" data-action="edit-item" data-id="${item.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(title)}">${icon("edit", 18)}</button></div></article>`;
 }
 
 function renderGroup(title, subtitle, items) { if (!items.length) return ""; return `<section class="item-group"><div class="section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count">${items.length}</span></div><div class="item-list">${items.map((item) => itemCard(item)).join("")}</div></section>`; }
@@ -305,36 +393,47 @@ function renderGroup(title, subtitle, items) { if (!items.length) return ""; ret
 function renderToday() {
   const groups = groupItemsForToday(state.items); const activeCountries = state.profile.activeCountries || []; const attention = groups.now.length;
   const title = attention ? tx(`${attention} item${attention === 1 ? "" : "s"} need attention`, `${attention} ${attention === 1 ? "задача требует" : "задачи требуют"} внимания`, `${attention} ta vazifa e’tibor talab qiladi`) : groups.missing.length ? tx(`${groups.missing.length} dates need confirmation`, `${groups.missing.length} дат нужно подтвердить`, `${groups.missing.length} ta sanani tasdiqlash kerak`) : tx("Everything is on track", "Всё под контролем", "Hammasi nazoratda");
-  return `${viewHeader(tx("Household overview", "Обзор семьи", "Oila ko‘rinishi"), title, tx("One calm queue across people, possessions, and countries.", "Одна спокойная очередь для людей, имущества и стран.", "Odamlar, mulk va mamlakatlar uchun bitta navbat."))}<section class="country-strip">${activeCountries.map((country) => `<button data-action="open-catalog-country" data-country="${country}"><span>${COUNTRY_META[country]?.flag || "🌐"}</span><strong>${countryName(country)}</strong><small>${state.items.filter((item) => item.country === country).length} ${tx("tracked", "в плане", "rejada")}</small></button>`).join("")}<button class="add-country" data-action="change-view" data-view="catalog">${icon("plus", 18)}<strong>${t(state.locale, "catalog")}</strong></button></section>${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), groups.now)}${renderGroup(t(state.locale, "addDates"), tx("Catalog matches waiting for a confirmed date.", "Совпадения каталога ждут подтверждённой даты.", "Katalog mosliklari sanani kutmoqda."), groups.missing)}${renderGroup(t(state.locale, "comingUp"), tx("Worth planning, not worrying about.", "Пора планировать, но не тревожиться.", "Rejalash vaqti, tashvish emas."), groups.upcoming)}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), groups.covered)}<aside class="principle-card">${icon("shield-check", 20)}<div><strong>${t(state.locale, "notGenerated")}</strong><p>${t(state.locale, "catalogDisclaimer")}</p></div></aside>`;
+  return `${viewHeader(tx("Household overview", "Обзор семьи", "Oila ko‘rinishi"), title, tx("One list across people, possessions, and countries.", "Единый список по людям, имуществу и странам.", "Odamlar, mulk va mamlakatlar uchun bitta ro‘yxat."))}<section class="country-strip">${activeCountries.map((country) => `<button data-action="open-catalog-country" data-country="${country}"><span>${COUNTRY_META[country]?.flag || "🌐"}</span><strong>${countryName(country)}</strong><small>${state.items.filter((item) => item.country === country).length} ${tx("tracked", "в плане", "rejada")}</small></button>`).join("")}<button class="add-country" data-action="change-view" data-view="registry">${icon("plus", 18)}<strong>${tx("Country or status", "Страна или статус", "Mamlakat yoki maqom")}</strong></button></section>${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), groups.now)}${renderGroup(t(state.locale, "addDates"), tx("Add an exact date to schedule it.", "Добавьте точную дату.", "Aniq sanani kiriting."), groups.missing)}${renderGroup(t(state.locale, "comingUp"), tx("Plan these next.", "Следующие в плане.", "Keyingi reja."), groups.upcoming)}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), groups.covered)}`;
 }
 
 function renderPlan() {
-  const dated = sortItems(state.items.filter((item) => parseISODate(item.schedule?.date) && item.status === "active")); const missing = state.items.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active"); const groups = new Map();
+  const filtered = state.items.filter((item) => {
+    const asset = state.assets.find((candidate) => candidate.id === item.assetId);
+    if (planFilters.country !== "all" && item.country !== planFilters.country) return false;
+    if (planFilters.assetType !== "all" && asset?.type !== planFilters.assetType) return false;
+    if (planFilters.assetId !== "all" && item.assetId !== planFilters.assetId) return false;
+    return true;
+  });
+  const dated = sortItems(filtered.filter((item) => parseISODate(item.schedule?.date) && item.status === "active")); const missing = filtered.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active"); const groups = new Map();
   dated.forEach((item) => { const key = getNextOccurrence(item).slice(0, 7); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
-  return `${viewHeader(tx("Timeline", "Таймлайн", "Vaqt jadvali"), t(state.locale, "plan"), tx("Deadlines and recurring obligations across every jurisdiction.", "Сроки и повторяющиеся обязанности по всем юрисдикциям.", "Barcha yurisdiksiyalardagi muddatlar."))}<div class="toolbar"><span class="catalog-version">${state.items.length} ${tx("obligations", "обязанностей", "majburiyat")}</span><button class="secondary-button compact" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></div><div class="timeline">${[...groups.entries()].map(([month, items]) => `<section class="timeline-month"><div class="month-label"><span>${new Intl.DateTimeFormat(state.locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseISODate(`${month}-01`))}</span><i></i></div><div class="timeline-items">${items.map((item) => itemCard(item)).join("")}</div></section>`).join("")}</div>${missing.length ? `<section class="undated-section">${renderGroup(t(state.locale, "addDates"), tx("These items stay outside the timeline until confirmed.", "Эти пункты не попадут в таймлайн до подтверждения даты.", "Sana tasdiqlanmaguncha vaqt jadvaliga kirmaydi."), missing)}</section>` : ""}`;
+  return `${viewHeader(tx("Timeline", "Таймлайн", "Vaqt jadvali"), t(state.locale, "plan"), tx("Filter obligations by country or a specific possession.", "Фильтруйте обязанности по стране или конкретному объекту.", "Majburiyatlarni mamlakat yoki aniq mulk bo‘yicha saralang."))}<div class="filter-bar"><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select data-plan-filter="country"><option value="all">${tx("All countries", "Все страны", "Barcha mamlakatlar")}</option>${state.profile.activeCountries.map((country) => `<option value="${country}" ${planFilters.country === country ? "selected" : ""}>${countryName(country)}</option>`).join("")}</select></label><label><span>${tx("Possession type", "Тип имущества", "Mulk turi")}</span><select data-plan-filter="assetType"><option value="all">${tx("All types", "Все типы", "Barcha turlar")}</option>${Object.keys(ASSET_TYPES).map((type) => `<option value="${type}" ${planFilters.assetType === type ? "selected" : ""}>${assetTypeLabel(type)}</option>`).join("")}</select></label><label><span>${tx("Exact possession", "Конкретный объект", "Aniq mulk")}</span><select data-plan-filter="assetId"><option value="all">${tx("All possessions", "Все объекты", "Barcha mulklar")}</option>${state.assets.map((asset) => `<option value="${asset.id}" ${planFilters.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${countryName(asset.country)}</option>`).join("")}</select></label><button class="secondary-button compact" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></div><div class="timeline">${[...groups.entries()].map(([month, items]) => `<section class="timeline-month"><div class="month-label"><span>${new Intl.DateTimeFormat(state.locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseISODate(`${month}-01`))}</span><i></i></div><div class="timeline-items">${items.map((item) => itemCard(item)).join("")}</div></section>`).join("")}</div>${missing.length ? `<section class="undated-section">${renderGroup(t(state.locale, "addDates"), tx("These items stay outside the timeline until confirmed.", "Эти пункты не попадут в таймлайн до подтверждения даты.", "Sana tasdiqlanmaguncha vaqt jadvaliga kirmaydi."), missing)}</section>` : ""}${!dated.length && !missing.length ? `<div class="mini-empty"><p>${tx("No obligations match these filters.", "По этим фильтрам ничего не найдено.", "Bu filtrlarga mos majburiyat yo‘q.")}</p></div>` : ""}`;
 }
 
 function renderRegistry() {
-  return `${viewHeader(tx("Household graph", "Граф семьи", "Oila grafigi"), t(state.locale, "registry"), tx("Every person and possession keeps its own countries and ownership.", "У каждого человека и объекта — свои страны и владелец.", "Har bir shaxs va mulkning o‘z mamlakati va egasi bor."), "asset")}<div class="registry-grid"><section class="registry-column"><div class="section-heading"><div><h2>${tx("People", "Люди", "Odamlar")}</h2><p>${tx("Citizenship and relevant jurisdictions.", "Гражданство и связанные юрисдикции.", "Fuqarolik va yurisdiksiyalar.")}</p></div></div>${state.people.map(personCard).join("")}</section><section class="registry-column"><div class="section-heading"><div><h2>${tx("Possessions", "Имущество", "Mulk")}</h2><p>${tx("Each item can live in a different country.", "Каждый объект может находиться в своей стране.", "Har bir obyekt boshqa mamlakatda bo‘lishi mumkin.")}</p></div></div>${state.assets.length ? state.assets.map(assetCard).join("") : `<div class="mini-empty"><p>${tx("No possessions yet.", "Имущество пока не добавлено.", "Hali mulk yo‘q.")}</p><button class="secondary-button compact" data-action="add-asset">${t(state.locale, "addAsset")}</button></div>`}</section></div>`;
+  return `${viewHeader(tx("Household graph", "Граф семьи", "Oila grafigi"), t(state.locale, "registry"), tx("Every person, legal status, and exact possession keeps its own country.", "У каждого человека, статуса и конкретного объекта — своя страна.", "Har bir shaxs, maqom va aniq mulkning o‘z mamlakati bor."), "asset")}<div class="registry-grid"><section class="registry-column"><div class="section-heading"><div><h2>${tx("People", "Люди", "Odamlar")}</h2><p>${tx("Multiple citizenships and country statuses.", "Несколько гражданств и статусов по странам.", "Bir nechta fuqarolik va mamlakat maqomlari.")}</p></div></div>${state.people.map(personCard).join("")}</section><section class="registry-column"><div class="section-heading"><div><h2>${tx("Exact possessions", "Конкретное имущество", "Aniq mulklar")}</h2><p>${tx("Add each car, home, land plot, or business separately.", "Добавляйте каждую машину, жильё, участок или бизнес отдельно.", "Har bir avtomobil, uy, yer yoki biznesni alohida qo‘shing.")}</p></div></div>${state.assets.length ? state.assets.map(assetCard).join("") : `<div class="mini-empty"><p>${tx("No possessions yet.", "Имущество пока не добавлено.", "Hali mulk yo‘q.")}</p><button class="secondary-button compact" data-action="add-asset">${t(state.locale, "addAsset")}</button></div>`}</section></div>`;
 }
 
 function personCard(person) {
-  const countries = [...new Set([...(person.citizenships || []), ...(person.jurisdictions || []).map((item) => item.country)])];
   const name = personName(person.id);
-  return `<article class="registry-card"><span class="avatar">${escapeHTML(name.slice(0, 1).toUpperCase())}</span><div><h3>${escapeHTML(name)}</h3><p>${countries.map((country) => `${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}`).join(" · ") || tx("No countries yet", "Страны не указаны", "Mamlakatlar yo‘q")}</p><small>${state.items.filter((item) => item.subjectId === person.id).length} ${tx("obligations", "обязанностей", "majburiyat")}</small></div><button class="icon-button" data-action="edit-person" data-id="${person.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(name)}">${icon("edit", 18)}</button></article>`;
+  const citizenships = (person.citizenships || []).map((country) => `<button class="relation-chip citizenship-chip" data-action="edit-country" data-person-id="${person.id}" data-citizenship-country="${country}"><span>${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}</span><small>${tx("Citizen", "Гражданство", "Fuqarolik")}</small></button>`).join("");
+  const relations = (person.jurisdictions || []).map((relation) => `<button class="relation-chip" data-action="edit-country" data-person-id="${person.id}" data-relation-id="${relation.id}"><span>${COUNTRY_META[relation.country]?.flag || "🌐"} ${countryName(relation.country)}</span><small>${relationTypeLabel(relation.type)} · ${legalBasisLabel(relation.basis)}${relation.statusLabel ? ` · ${escapeHTML(relation.statusLabel)}` : ""}${relation.validUntil ? ` · ${formatDate(relation.validUntil, true)}` : ""}</small></button>`).join("");
+  return `<article class="person-registry-card"><div class="person-card-head"><span class="avatar">${escapeHTML(name.slice(0, 1).toUpperCase())}</span><div><h3>${escapeHTML(name)}</h3><small>${state.items.filter((item) => item.subjectId === person.id).length} ${tx("obligations", "обязанностей", "majburiyat")}</small></div><button class="icon-button" data-action="edit-person" data-id="${person.id}" aria-label="${tx("Edit person", "Изменить человека", "Shaxsni tahrirlash")}: ${escapeHTML(name)}">${icon("edit", 18)}</button></div><div class="relation-list">${citizenships}${relations}<button class="relation-chip add-relation" data-action="add-country" data-person-id="${person.id}">${icon("plus", 14)} <span>${tx("Country or status", "Страна или статус", "Mamlakat yoki maqom")}</span></button></div></article>`;
 }
 
-function assetCard(asset) { const meta = ASSET_TYPES[asset.type] || ASSET_TYPES.other; return `<article class="registry-card"><span class="item-icon category-${asset.type === "vehicle" ? "transport" : asset.type === "business" ? "tax" : asset.type}">${icon(meta.icon, 19)}</span><div><h3>${escapeHTML(displayAssetLabel(asset))}</h3><p>${COUNTRY_META[asset.country]?.flag || "🌐"} ${countryName(asset.country)} · ${personName(asset.ownerId)}</p><small>${state.items.filter((item) => item.assetId === asset.id).length} ${tx("obligations", "обязанностей", "majburiyat")}</small></div><button class="icon-button" data-action="edit-asset" data-id="${asset.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(displayAssetLabel(asset))}">${icon("edit", 18)}</button></article>`; }
+function assetCard(asset) { const meta = ASSET_TYPES[asset.type] || ASSET_TYPES.other; return `<article class="registry-card"><span class="item-icon category-${asset.type === "vehicle" ? "transport" : asset.type === "business" ? "tax" : asset.type}">${icon(meta.icon, 19)}</span><div><h3>${escapeHTML(displayAssetLabel(asset))}</h3><p>${assetTypeLabel(asset.type)} · ${COUNTRY_META[asset.country]?.flag || "🌐"} ${countryName(asset.country)} · ${personName(asset.ownerId)}</p>${asset.details ? `<p>${escapeHTML(asset.details)}</p>` : ""}<small>${state.items.filter((item) => item.assetId === asset.id).length} ${tx("linked obligations", "связанных обязанностей", "bog‘langan majburiyat")}</small></div><button class="icon-button" data-action="edit-asset" data-id="${asset.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(displayAssetLabel(asset))}">${icon("edit", 18)}</button></article>`; }
 
 function renderCatalog() {
   const trackedIds = new Set(state.items.map((item) => item.catalogId));
-  return `${viewHeader(t(state.locale, "sourceBacked"), t(state.locale, "catalog"), tx("Reviewed starter packs for Russia and Uzbekistan. Add only what applies.", "Проверенные стартовые пакеты для России и Узбекистана. Добавляйте только применимое.", "Rossiya va O‘zbekiston uchun tekshirilgan paketlar."), "none")}<div class="catalog-toolbar"><div class="catalog-tabs"><button class="active" data-country-filter="all">${tx("All", "Все", "Barchasi")} · ${CATALOG.length}</button>${Object.keys(COUNTRY_META).map((country) => `<button data-country-filter="${country}">${COUNTRY_META[country].flag} ${countryName(country)}</button>`).join("")}</div><span>${t(state.locale, "lastReviewed")}: ${CATALOG_REVIEWED_AT}</span></div><div class="catalog-grid">${CATALOG.map((entry) => catalogCard(entry, trackedIds.has(entry.id))).join("")}</div><aside class="principle-card">${icon("info", 20)}<div><strong>${t(state.locale, "catalogDisclaimer")}</strong><p>${tx("High-risk applicability items always require explicit confirmation.", "Пункты с высоким риском применимости всегда требуют явного подтверждения.", "Yuqori xavfli bandlar aniq tasdiqni talab qiladi.")}</p></div></aside>`;
+  return `${viewHeader(t(state.locale, "sourceBacked"), t(state.locale, "catalog"), tx("Country rules are matched to citizenship, legal status, and the country of each possession.", "Правила стран сопоставляются с гражданством, правовым статусом и страной каждого объекта.", "Mamlakat qoidalari fuqarolik, qonuniy maqom va har bir mulk mamlakati bilan moslashtiriladi."), "none")}<aside class="coverage-card"><strong>${tx("Research coverage", "Покрытие исследования", "Tadqiqot qamrovi")}</strong><span>${tx("10 CIS countries · 20 European countries · 11 East and Southeast Asian jurisdictions", "10 стран СНГ · 20 стран Европы · 11 юрисдикций Восточной и Юго-Восточной Азии", "10 MDH mamlakati · 20 Yevropa mamlakati · Sharqiy va Janubi-Sharqiy Osiyodagi 11 yurisdiksiya")}</span><small>${tx("Only individually reviewed rules are published below; the wider source maps feed the next catalog releases.", "Ниже опубликованы только отдельно проверенные правила; остальные карты источников готовят следующие выпуски каталога.", "Quyida faqat alohida tekshirilgan qoidalar chop etiladi; kengroq manba xaritalari keyingi nashrlar uchun.")}</small></aside><div class="catalog-toolbar"><div class="catalog-tabs"><button class="active" data-country-filter="all">${tx("All", "Все", "Barchasi")} · ${CATALOG.length}</button>${Object.keys(COUNTRY_META).map((country) => `<button data-country-filter="${country}">${COUNTRY_META[country].flag} ${countryName(country)}</button>`).join("")}</div><span>${t(state.locale, "lastReviewed")}: ${CATALOG_REVIEWED_AT}</span></div><div class="catalog-grid">${CATALOG.map((entry) => catalogCard(entry, trackedIds.has(entry.id))).join("")}</div><aside class="principle-card">${icon("info", 20)}<div><strong>${t(state.locale, "catalogDisclaimer")}</strong><p>${tx("Conditional rules stay visible, but require your confirmation before relying on a deadline.", "Условные правила видны в каталоге, но требуют подтверждения перед использованием срока.", "Shartli qoidalar ko‘rinadi, lekin muddatga tayanishdan oldin tasdiq talab qiladi.")}</p></div></aside>`;
 }
 
 function catalogCard(entry, tracked) {
   const confidenceLabel = entry.confidence === "high" ? tx("High confidence", "Высокая уверенность", "Yuqori ishonch") : entry.confidence === "medium-high" ? tx("Medium-high confidence", "Уверенность выше средней", "O‘rtachadan yuqori ishonch") : entry.confidence;
   const riskLabel = entry.risk === "high_applicability" ? tx("Check applicability", "Проверьте применимость", "Mosligini tekshiring") : confidenceLabel;
-  return `<article class="catalog-card" data-catalog-country="${entry.country}"><div class="catalog-card-top"><span class="country-badge">${COUNTRY_META[entry.country]?.flag} ${countryName(entry.country)}</span><span class="confidence ${entry.risk === "high_applicability" ? "risk" : ""}">${riskLabel}</span></div><h2>${escapeHTML(localized(entry.title, state.locale))}</h2><p>${escapeHTML(localized(entry.summary, state.locale))}</p><dl><div><dt>${tx("For", "Для кого", "Kim uchun")}</dt><dd>${escapeHTML(localized(entry.audience, state.locale))}</dd></div><div><dt>${t(state.locale, "lastReviewed")}</dt><dd>${CATALOG_REVIEWED_AT}</dd></div></dl><div class="catalog-card-actions"><a href="${entry.source.url}" target="_blank" rel="noopener">${icon("external", 15)} ${t(state.locale, "officialSource")}</a><button class="${tracked ? "secondary-button" : "primary-button"} compact" data-action="add-catalog" data-id="${entry.id}" ${tracked ? "disabled" : ""}>${tracked ? tx("Tracked", "В плане", "Rejada") : tx("Add to plan", "Добавить в план", "Rejaga qo‘shish")}</button></div></article>`;
+  const eligible = entry.match?.kind !== "citizenship" || matchCatalog(state).some((match) => match.entry.id === entry.id);
+  const disabled = tracked || !eligible;
+  const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : eligible ? tx("Add to plan", "Добавить в план", "Rejaga qo‘shish") : tx("Citizens only", "Только для граждан", "Faqat fuqarolar uchun");
+  return `<article class="catalog-card" data-catalog-country="${entry.country}"><div class="catalog-card-top"><span class="country-badge">${COUNTRY_META[entry.country]?.flag} ${countryName(entry.country)}</span><span class="confidence ${entry.risk === "high_applicability" ? "risk" : ""}">${riskLabel}</span></div><h2>${escapeHTML(localized(entry.title, state.locale))}</h2><p>${escapeHTML(localized(entry.summary, state.locale))}</p><dl><div><dt>${tx("For", "Для кого", "Kim uchun")}</dt><dd>${escapeHTML(localized(entry.audience, state.locale))}</dd></div><div><dt>${t(state.locale, "lastReviewed")}</dt><dd>${CATALOG_REVIEWED_AT}</dd></div></dl><div class="catalog-card-actions"><a href="${entry.source.url}" target="_blank" rel="noopener">${icon("external", 15)} ${t(state.locale, "officialSource")}</a><button class="${tracked || !eligible ? "secondary-button" : "primary-button"} compact" data-action="add-catalog" data-id="${entry.id}" ${disabled ? "disabled" : ""}>${buttonLabel}</button></div></article>`;
 }
 
 function renderSettings() {
@@ -366,16 +465,41 @@ function updateReminderPreview() {
 
 function openAssetDialog(asset = null) {
   const form = document.querySelector("#asset-form"); form.reset(); form.elements.id.value = asset?.id || ""; form.elements.type.value = asset?.type || "property"; form.elements.label.value = asset?.label || "";
+  form.elements.details.value = asset?.details || "";
   form.elements.country.innerHTML = countryOptions(asset?.country || state.profile.activeCountries?.[0] || "RU", false);
   form.elements.ownerId.innerHTML = state.people.map((person) => `<option value="${person.id}" ${asset?.ownerId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("");
   document.querySelector("#asset-dialog-title").textContent = asset ? tx("Edit possession", "Изменить имущество", "Mulkni o‘zgartirish") : t(state.locale, "addAsset"); document.querySelector("#asset-dialog").showModal();
 }
 
 function openPersonDialog(person = null) {
-  const form = document.querySelector("#person-form"); form.reset(); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
-  form.elements.citizenship.innerHTML = countryOptions(person?.citizenships?.[0] || "RU", false);
-  form.elements.residence.innerHTML = countryOptions(person?.jurisdictions?.find((item) => item.type === "residence")?.country || "RU", false);
+  const form = document.querySelector("#person-form"); const primaryRelation = person?.jurisdictions?.find((item) => item.type === "residence") || person?.jurisdictions?.[0]; form.reset(); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
+  form.elements.citizenship.innerHTML = countryOptions(person?.citizenships?.[0] || "RU", true);
+  form.elements.residence.innerHTML = countryOptions(primaryRelation?.country || "RU", true);
+  form.elements.relationType.innerHTML = relationTypeOptions(primaryRelation?.type || "residence");
+  form.elements.basis.innerHTML = legalBasisOptions(primaryRelation?.basis || (person?.citizenships?.includes(primaryRelation?.country || "RU") ? "citizen" : "unspecified"));
+  form.elements.validUntil.value = primaryRelation?.validUntil || "";
   document.querySelector("#person-dialog-title").textContent = person ? tx("Edit person", "Изменить человека", "Shaxsni o‘zgartirish") : t(state.locale, "addPerson"); document.querySelector("#person-dialog").showModal();
+}
+
+function updateCountryRelationFields() {
+  const form = document.querySelector("#country-form");
+  const isCitizenship = form.elements.recordKind.value === "citizenship";
+  document.querySelector("#country-relation-fields").hidden = isCitizenship;
+  for (const input of document.querySelectorAll("#country-relation-fields input, #country-relation-fields select, #country-relation-fields textarea")) input.disabled = isCitizenship;
+}
+
+function openCountryDialog(personId, relationId = "", citizenshipCountry = "") {
+  const person = state.people.find((entry) => entry.id === personId); if (!person) return;
+  const relation = relationId ? person.jurisdictions?.find((entry) => entry.id === relationId) : null;
+  const form = document.querySelector("#country-form"); form.reset();
+  form.elements.personId.value = personId; form.elements.relationId.value = relation?.id || ""; form.elements.originalCountry.value = citizenshipCountry || "";
+  form.elements.recordKind.value = citizenshipCountry ? "citizenship" : "relationship";
+  form.elements.country.innerHTML = countryOptions(citizenshipCountry || relation?.country || state.profile.activeCountries?.[0] || "RU", false);
+  form.elements.type.innerHTML = relationTypeOptions(relation?.type || "residence");
+  form.elements.basis.innerHTML = legalBasisOptions(relation?.basis || "unspecified");
+  form.elements.statusLabel.value = relation?.statusLabel || ""; form.elements.validUntil.value = relation?.validUntil || ""; form.elements.note.value = relation?.note || "";
+  const editing = Boolean(relation || citizenshipCountry); document.querySelector("#country-dialog-title").textContent = editing ? tx("Edit country record", "Изменить связь со страной", "Mamlakat yozuvini tahrirlash") : tx("Add country or status", "Добавить страну или статус", "Mamlakat yoki maqom qo‘shish");
+  document.querySelector("#delete-country-relation").hidden = !editing; updateCountryRelationFields(); document.querySelector("#country-dialog").showModal();
 }
 
 async function saveItem() {
@@ -391,16 +515,47 @@ async function saveItem() {
 
 async function saveAsset() {
   const form = document.querySelector("#asset-form"); const data = new FormData(form); const id = data.get("id"); const existing = state.assets.find((asset) => asset.id === id);
-  const asset = { id: existing?.id || createId("asset"), type: data.get("type"), label: String(data.get("label") || "").trim() || assetTypeLabel(data.get("type")), country: data.get("country"), ownerId: data.get("ownerId") };
-  state.assets = existing ? state.assets.map((entry) => entry.id === existing.id ? asset : entry) : [...state.assets, asset]; state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), asset.country])];
+  const asset = { id: existing?.id || createId("asset"), type: data.get("type"), label: String(data.get("label") || "").trim() || assetTypeLabel(data.get("type")), details: String(data.get("details") || "").trim(), country: data.get("country"), ownerId: data.get("ownerId") };
+  state.assets = existing ? state.assets.map((entry) => entry.id === existing.id ? asset : entry) : [...state.assets, asset]; syncActiveCountries();
   await persistState(); document.querySelector("#asset-dialog").close(); render(); announce(tx("Possession saved.", "Имущество сохранено.", "Mulk saqlandi."));
 }
 
 async function savePerson() {
   const form = document.querySelector("#person-form"); const data = new FormData(form); const id = data.get("id"); const existing = state.people.find((person) => person.id === id);
-  const person = { id: existing?.id || createId("person"), name: String(data.get("name") || "").trim() || tx("Person", "Человек", "Shaxs"), relationship: existing?.relationship || "dependant", citizenships: [data.get("citizenship")].filter(Boolean), jurisdictions: [{ country: data.get("residence"), type: "residence" }].filter((item) => item.country) };
-  state.people = existing ? state.people.map((entry) => entry.id === existing.id ? person : entry) : [...state.people, person]; state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), ...person.citizenships, ...person.jurisdictions.map((item) => item.country)])];
+  const citizenships = [...(existing?.citizenships || [])]; const citizenship = data.get("citizenship");
+  if (citizenship) { if (citizenships.length) citizenships[0] = citizenship; else citizenships.push(citizenship); }
+  const jurisdictions = [...(existing?.jurisdictions || [])]; const residence = data.get("residence");
+  if (residence) {
+    const primaryIndex = jurisdictions.findIndex((item) => item.type === "residence"); const current = jurisdictions[primaryIndex] || jurisdictions[0];
+    const relation = { ...(current || {}), id: current?.id || createId("relation"), country: residence, type: data.get("relationType") || "residence", basis: data.get("basis") || "unspecified", validUntil: data.get("validUntil") || "", statusLabel: current?.statusLabel || "", note: current?.note || "" };
+    if (primaryIndex >= 0) jurisdictions[primaryIndex] = relation; else if (current) jurisdictions[0] = relation; else jurisdictions.push(relation);
+  }
+  const person = { id: existing?.id || createId("person"), name: String(data.get("name") || "").trim() || tx("Person", "Человек", "Shaxs"), relationship: existing?.relationship || "dependant", citizenships: [...new Set(citizenships.filter(Boolean))], jurisdictions };
+  state.people = existing ? state.people.map((entry) => entry.id === existing.id ? person : entry) : [...state.people, person]; syncActiveCountries();
   await persistState(); document.querySelector("#person-dialog").close(); render(); announce(tx("Person saved.", "Человек сохранён.", "Shaxs saqlandi."));
+}
+
+async function saveCountryRelation() {
+  const form = document.querySelector("#country-form"); const data = new FormData(form); const person = state.people.find((entry) => entry.id === data.get("personId")); const country = data.get("country");
+  if (!person || !country) { announce(tx("Choose a country.", "Выберите страну.", "Mamlakatni tanlang.")); return; }
+  const relationId = data.get("relationId"); const originalCountry = data.get("originalCountry");
+  if (data.get("recordKind") === "citizenship") {
+    if (relationId) person.jurisdictions = (person.jurisdictions || []).filter((entry) => entry.id !== relationId);
+    person.citizenships = [...new Set([...(person.citizenships || []).filter((entry) => entry !== originalCountry), country])];
+  } else {
+    if (originalCountry) person.citizenships = (person.citizenships || []).filter((entry) => entry !== originalCountry);
+    const relation = { id: relationId || createId("relation"), country, type: data.get("type") || "other", basis: data.get("basis") || "unspecified", statusLabel: String(data.get("statusLabel") || "").trim(), validUntil: data.get("validUntil") || "", note: String(data.get("note") || "").trim() };
+    person.jurisdictions = relationId ? (person.jurisdictions || []).map((entry) => entry.id === relationId ? relation : entry) : [...(person.jurisdictions || []), relation];
+  }
+  syncActiveCountries(); await persistState(); document.querySelector("#country-dialog").close(); render(); announce(tx("Country record saved.", "Связь со страной сохранена.", "Mamlakat yozuvi saqlandi."));
+}
+
+async function deleteCountryRelation() {
+  const form = document.querySelector("#country-form"); const person = state.people.find((entry) => entry.id === form.elements.personId.value); if (!person) return;
+  const relationId = form.elements.relationId.value; const originalCountry = form.elements.originalCountry.value;
+  if (relationId) person.jurisdictions = (person.jurisdictions || []).filter((entry) => entry.id !== relationId);
+  if (originalCountry) person.citizenships = (person.citizenships || []).filter((entry) => entry !== originalCountry);
+  syncActiveCountries(); await persistState(); document.querySelector("#country-dialog").close(); render(); announce(tx("Country record removed.", "Связь со страной удалена.", "Mamlakat yozuvi olib tashlandi."));
 }
 
 function downloadText(filename, text, type) { const blob = new Blob([text], { type }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
@@ -409,6 +564,7 @@ function exportCalendar() { const valid = state.items.filter((item) => parseISOD
 async function addCatalogItem(id) {
   const entry = CATALOG.find((item) => item.id === id); if (!entry || state.items.some((item) => item.catalogId === id)) return;
   const possible = matchCatalog(state).find((match) => match.entry.id === id); const match = possible || { entry, subjectId: state.people[0]?.id || null, assetId: null };
+  if (entry.match?.kind === "citizenship" && !possible) { announce(tx("This document is available only for citizens of the issuing country.", "Этот документ доступен только гражданам страны выдачи.", "Bu hujjat faqat uni beruvchi mamlakat fuqarolari uchun.")); return; }
   state.items.push(makeItemFromCatalog(match, { title: localized(entry.title, state.locale), reason: localized(entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: personName(match.subjectId) })); state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), entry.country])];
   await persistState(); render(); announce(tx("Added to your plan. Confirm the date next.", "Добавлено в план. Теперь подтвердите дату.", "Rejaga qo‘shildi. Endi sanani tasdiqlang."));
 }
@@ -422,11 +578,14 @@ document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]"); if (!target) return; const action = target.dataset.action;
   if (action === "setup-home") { event.preventDefault(); setupStep = 1; render(); }
   if (action === "choose-goal") { setupDraft.goal = target.dataset.value; render(); }
-  if (action === "setup-next") {
-    if (setupStep === 2) { const data = new FormData(document.querySelector("#setup-country-form")); setupDraft.citizenship = data.get("citizenship"); setupDraft.residence = data.get("residence"); setupDraft.extraCountry = data.get("extraCountry"); }
-    setupStep = Math.min(4, setupStep + 1); render();
-  }
+  if (action === "setup-next") { setupStep = Math.min(4, setupStep + 1); render(); }
   if (action === "setup-back") { setupStep = Math.max(1, setupStep - 1); render(); }
+  if (action === "setup-add-citizenship") { const next = COUNTRIES.find(([code]) => code && !setupDraft.citizenships.includes(code))?.[0] || "OTHER"; setupDraft.citizenships.push(next); render(); }
+  if (action === "setup-remove-citizenship") { setupDraft.citizenships.splice(Number(target.dataset.index), 1); render(); }
+  if (action === "setup-add-jurisdiction") { const used = setupDraft.jurisdictions.map((item) => item.country); const country = COUNTRIES.find(([code]) => code && !used.includes(code))?.[0] || "OTHER"; setupDraft.jurisdictions.push({ id: createId("draft-relation"), country, type: "other", basis: "unspecified", validUntil: "", statusLabel: "", note: "" }); render(); }
+  if (action === "setup-remove-jurisdiction") { setupDraft.jurisdictions.splice(Number(target.dataset.index), 1); render(); }
+  if (action === "setup-add-asset") { setupDraft.assets.push({ id: createId("draft-asset"), type: "property", label: "", country: setupDraft.jurisdictions[0]?.country || setupDraft.citizenships[0] || "RU" }); render(); }
+  if (action === "setup-remove-asset") { setupDraft.assets.splice(Number(target.dataset.index), 1); render(); }
   if (action === "finish-setup") await finishSetup();
   if (action === "change-view") { activeView = target.dataset.view; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
   if (action === "open-catalog-country") { activeView = "catalog"; render(); window.setTimeout(() => filterCatalog(target.dataset.country), 0); }
@@ -439,6 +598,9 @@ document.addEventListener("click", async (event) => {
   if (action === "add-person") openPersonDialog();
   if (action === "edit-person") openPersonDialog(state.people.find((person) => person.id === target.dataset.id));
   if (action === "save-person") await savePerson();
+  if (action === "add-country") openCountryDialog(target.dataset.personId);
+  if (action === "edit-country") openCountryDialog(target.dataset.personId, target.dataset.relationId, target.dataset.citizenshipCountry);
+  if (action === "save-country-relation") await saveCountryRelation();
   if (action === "add-catalog") await addCatalogItem(target.dataset.id);
   if (action === "export-calendar") exportCalendar();
   if (action === "backup-data") downloadText(`nextdue-backup-${toISODate(new Date())}.json`, JSON.stringify(state, null, 2), "application/json");
@@ -450,15 +612,22 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("change", async (event) => {
   if (event.target.id === "setup-locale") { setupDraft.locale = event.target.value; render(); }
-  if (event.target.dataset.setupAsset) { const type = event.target.dataset.setupAsset; const countrySelect = document.querySelector(`[data-setup-asset-country="${type}"]`); countrySelect.disabled = !event.target.checked; setupDraft.assets = setupDraft.assets.filter((asset) => asset.type !== type); if (event.target.checked) setupDraft.assets.push({ type, country: countrySelect.value }); render(); }
-  if (event.target.dataset.setupAssetCountry) { const asset = setupDraft.assets.find((item) => item.type === event.target.dataset.setupAssetCountry); if (asset) asset.country = event.target.value; }
+  if (event.target.dataset.setupCitizenshipIndex !== undefined) setupDraft.citizenships[Number(event.target.dataset.setupCitizenshipIndex)] = event.target.value;
+  if (event.target.dataset.setupJurisdictionIndex !== undefined) { const relation = setupDraft.jurisdictions[Number(event.target.dataset.setupJurisdictionIndex)]; if (relation) relation[event.target.dataset.field] = event.target.value; }
+  if (event.target.dataset.setupAssetIndex !== undefined) { const asset = setupDraft.assets[Number(event.target.dataset.setupAssetIndex)]; if (asset) asset[event.target.dataset.field] = event.target.value; }
+  if (event.target.dataset.planFilter) { planFilters[event.target.dataset.planFilter] = event.target.value; render(); }
+  if (event.target.closest("#country-form") && event.target.name === "recordKind") updateCountryRelationFields();
   if (event.target.id === "language-select") { setLanguage(event.target.value); await persistState(); render(); }
   if (event.target.name === "kind") updateScheduleFields();
   if (event.target.name === "date" || event.target.name === "reminderInput") updateReminderPreview();
   if (event.target.dataset.setting) { state.settings[event.target.dataset.setting] = event.target.checked; await persistState(); render(); }
 });
 
-document.addEventListener("input", (event) => { if (event.target.name === "reminderInput" || event.target.name === "date") updateReminderPreview(); });
+document.addEventListener("input", (event) => {
+  if (event.target.name === "reminderInput" || event.target.name === "date") updateReminderPreview();
+  if (event.target.dataset.setupJurisdictionIndex !== undefined) { const relation = setupDraft.jurisdictions[Number(event.target.dataset.setupJurisdictionIndex)]; if (relation) relation[event.target.dataset.field] = event.target.value; }
+  if (event.target.dataset.setupAssetIndex !== undefined) { const asset = setupDraft.assets[Number(event.target.dataset.setupAssetIndex)]; if (asset) asset[event.target.dataset.field] = event.target.value; }
+});
 document.addEventListener("click", (event) => { const filter = event.target.closest("[data-country-filter]"); if (filter) filterCatalog(filter.dataset.countryFilter); });
 
 document.querySelector("#delete-item").addEventListener("click", async () => {
@@ -466,9 +635,13 @@ document.querySelector("#delete-item").addEventListener("click", async () => {
   if (id && window.confirm(tx("Remove this obligation?", "Удалить эту обязанность?", "Bu majburiyat o‘chirilsinmi?"))) { state.items = state.items.filter((item) => item.id !== id); await persistState(); document.querySelector("#item-dialog").close(); render(); }
 });
 
+document.querySelector("#delete-country-relation").addEventListener("click", async () => {
+  if (window.confirm(tx("Remove this country record?", "Удалить эту связь со страной?", "Bu mamlakat yozuvi olib tashlansinmi?"))) await deleteCountryRelation();
+});
+
 document.querySelector("#restore-input").addEventListener("change", async (event) => {
   const file = event.target.files?.[0]; if (!file || file.size > 1_000_000) return;
-  try { state = validateBackup(JSON.parse(await file.text())); await persistState(); activeView = "today"; render(); announce(tx("Backup restored.", "Резервная копия восстановлена.", "Nusxa tiklandi.")); } catch (error) { announce(error.message); }
+  try { state = validateBackup(migrateState(JSON.parse(await file.text()))); await persistState(); activeView = "today"; render(); announce(tx("Backup restored.", "Резервная копия восстановлена.", "Nusxa tiklandi.")); } catch (error) { announce(error.message); }
   event.target.value = "";
 });
 

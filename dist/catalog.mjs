@@ -14,6 +14,7 @@ export const CATALOG = [
     country: "RU",
     category: "identity",
     subjectType: "person",
+    match: { kind: "citizenship" },
     title: text("Internal passport: issue or age replacement", "Внутренний паспорт: получение или замена по возрасту", "Ichki pasport: olish yoki yosh bo‘yicha almashtirish"),
     summary: text("For Russian citizens: issue at 14; replace at 20 and 45. The previous passport has a limited grace period after the triggering date.", "Для граждан РФ: получение в 14 лет, замена в 20 и 45 лет. После даты события действует ограниченный переходный срок.", "Rossiya fuqarolari uchun: 14 yoshda olish, 20 va 45 yoshda almashtirish."),
     audience: text("Russian citizen", "Гражданин РФ", "Rossiya fuqarosi"),
@@ -28,9 +29,10 @@ export const CATALOG = [
     country: "RU",
     category: "identity",
     subjectType: "person",
+    match: { kind: "citizenship" },
     title: text("International passport expiry", "Срок действия загранпаспорта", "Xorijga chiqish pasporti muddati"),
     summary: text("Traditional passports are normally valid for 5 years; biometric passports for 10 years. Track the printed date.", "Паспорт старого образца обычно действует 5 лет, биометрический — 10 лет. Отслеживайте дату в документе.", "Oddiy pasport odatda 5 yil, biometrik pasport 10 yil amal qiladi."),
-    audience: text("Russian citizen or traveler", "Гражданин РФ или путешественник", "Rossiya fuqarosi yoki sayohatchi"),
+    audience: text("Russian citizen", "Гражданин РФ", "Rossiya fuqarosi"),
     timing: { kind: "expiry_manual" },
     defaultReminders: "365/180/120/90/30/7/0",
     confidence: "high",
@@ -42,6 +44,7 @@ export const CATALOG = [
     country: "RU",
     category: "transport",
     subjectType: "person",
+    match: { kind: "manual" },
     title: text("Driving licence expiry", "Срок действия водительского удостоверения", "Haydovchilik guvohnomasi muddati"),
     summary: text("Normally valid for 10 years. Some 2022–2025 expiries received an automatic extension, so keep the printed date and extension status separate.", "Обычно действует 10 лет. Для части удостоверений со сроком 2022–2025 было автопродление — храните напечатанную дату и статус продления отдельно.", "Odatda 10 yil amal qiladi. Hujjatdagi sana va uzaytirish holatini alohida saqlang."),
     audience: text("Driver", "Водитель", "Haydovchi"),
@@ -86,6 +89,7 @@ export const CATALOG = [
     country: "RU",
     category: "residence",
     subjectType: "person",
+    match: { kind: "foreigner_presence" },
     title: text("Foreigner migration registration review", "Проверка миграционного учёта иностранца", "Chet el fuqarosining migratsiya ro‘yxati"),
     summary: text("The default notification window is 7 working days after arrival at a place of stay, but status and accommodation exceptions are common.", "Базовый срок уведомления — 7 рабочих дней после прибытия в место пребывания, но есть многочисленные исключения по статусу и размещению.", "Asosiy muddat yashash joyiga kelgandan keyin 7 ish kuni, lekin istisnolar ko‘p."),
     audience: text("Foreigner arriving or staying in Russia", "Иностранец, прибывающий или находящийся в РФ", "Rossiyaga kelayotgan chet el fuqarosi"),
@@ -100,6 +104,7 @@ export const CATALOG = [
     country: "RU",
     category: "residence",
     subjectType: "person",
+    match: { kind: "legal_basis", values: ["rvp", "rvpo", "vnzh", "temporary_residence", "permanent_residence"] },
     title: text("Residence permit annual confirmation", "Ежегодное подтверждение проживания по ВНЖ", "Yashash ruxsatini yillik tasdiqlash"),
     summary: text("For a foreigner with a residence permit: usually within 2 months after each anniversary of receiving it. Additional conditions can apply.", "Для иностранца с ВНЖ: обычно в течение 2 месяцев после каждой годовщины получения. Возможны дополнительные условия.", "Yashash ruxsati bor chet el fuqarosi uchun odatda har bir yillik sanadan keyin 2 oy ichida."),
     audience: text("Foreigner with a Russian residence permit", "Иностранец с ВНЖ РФ", "Rossiyada yashash ruxsati bor chet el fuqarosi"),
@@ -114,9 +119,10 @@ export const CATALOG = [
     country: "UZ",
     category: "identity",
     subjectType: "person",
+    match: { kind: "citizenship" },
     title: text("ID card expiry", "Срок действия ID-карты", "ID-karta amal qilish muddati"),
     summary: text("Validity depends on age: 2 years from birth to 1, 5 years from 1–16, and 10 years from age 16. Track the printed date.", "Срок зависит от возраста: 2 года до года, 5 лет от 1 до 16 лет, 10 лет с 16 лет. Отслеживайте дату в документе.", "Amal qilish muddati yoshga bog‘liq: 1 yoshgacha 2 yil, 1–16 yoshda 5 yil, 16 yoshdan 10 yil."),
-    audience: text("Uzbekistan citizen or eligible resident", "Гражданин Узбекистана или соответствующий резидент", "O‘zbekiston fuqarosi yoki tegishli rezident"),
+    audience: text("Uzbekistan citizen", "Гражданин Узбекистана", "O‘zbekiston fuqarosi"),
     timing: { kind: "expiry_manual" },
     defaultReminders: "180/90/30/7/0",
     confidence: "high",
@@ -128,6 +134,7 @@ export const CATALOG = [
     country: "UZ",
     category: "transport",
     subjectType: "person",
+    match: { kind: "manual" },
     title: text("Driving licence expiry", "Срок действия водительского удостоверения", "Haydovchilik guvohnomasi muddati"),
     summary: text("A national driving licence is issued for 10 years. Track the printed date.", "Национальное водительское удостоверение выдаётся на 10 лет. Отслеживайте дату в документе.", "Milliy haydovchilik guvohnomasi 10 yilga beriladi."),
     audience: text("Driver", "Водитель", "Haydovchi"),
@@ -142,6 +149,7 @@ export const CATALOG = [
     country: "UZ",
     category: "residence",
     subjectType: "person",
+    match: { kind: "foreigner_presence" },
     title: text("Foreigner temporary registration review", "Проверка временной регистрации иностранца", "Chet el fuqarosini vaqtincha ro‘yxatdan o‘tkazish"),
     summary: text("The default window is 3 working days after entry or an address change. Hotels often register guests; exceptions apply.", "Базовый срок — 3 рабочих дня после въезда или смены адреса. В гостиницах регистрацию часто оформляет объект размещения; есть исключения.", "Asosiy muddat kirish yoki manzil o‘zgarishidan keyin 3 ish kuni. Istisnolar mavjud."),
     audience: text("Foreign visitor", "Иностранный посетитель", "Chet ellik mehmon"),
@@ -156,6 +164,7 @@ export const CATALOG = [
     country: "UZ",
     category: "identity",
     subjectType: "person",
+    match: { kind: "foreigner_presence" },
     title: text("Passport validity before Uzbekistan entry", "Проверка срока паспорта перед въездом в Узбекистан", "O‘zbekistonga kirishdan oldin pasport muddati"),
     summary: text("Travel-readiness check: official guidance states at least 6 months of passport validity at entry. Confirm for your citizenship and trip.", "Проверка перед поездкой: официальная памятка указывает минимум 6 месяцев действия паспорта при въезде. Подтвердите для своего гражданства и маршрута.", "Safar tekshiruvi: kirishda pasport kamida 6 oy amal qilishi kerakligi ko‘rsatilgan."),
     audience: text("Foreigner entering Uzbekistan", "Иностранец, въезжающий в Узбекистан", "O‘zbekistonga kirayotgan chet el fuqarosi"),
@@ -196,10 +205,15 @@ export function matchCatalog({ people = [], assets = [] }) {
     if (entry.subjectType === "person") {
       for (const person of people) {
         const citizenship = person.citizenships?.includes(entry.country);
-        const jurisdiction = person.jurisdictions?.some((item) => item.country === entry.country);
-        const isForeigner = jurisdiction && !citizenship;
-        let applies = citizenship || jurisdiction;
-        if (entry.id.includes("foreigner") || entry.id.includes("residence_permit")) applies = isForeigner;
+        const jurisdictions = person.jurisdictions?.filter((item) => item.country === entry.country) || [];
+        const presence = jurisdictions.some((item) => ["residence", "stay", "destination"].includes(item.type));
+        const isForeigner = presence && !citizenship;
+        let applies = false;
+        if (entry.match?.kind === "citizenship") applies = citizenship;
+        else if (entry.match?.kind === "foreigner_presence") applies = isForeigner;
+        else if (entry.match?.kind === "legal_basis") applies = isForeigner && jurisdictions.some((item) => entry.match.values.includes(item.basis));
+        else if (entry.match?.kind === "manual") applies = false;
+        else applies = citizenship;
         if (applies) matches.push({ entry, subjectId: person.id, assetId: null });
       }
     } else {

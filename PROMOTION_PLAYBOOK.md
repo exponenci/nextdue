@@ -12,7 +12,7 @@ The core message is not “AI generates a plan.” It is:
 
 > Know what may apply, who it belongs to, where it applies, and when to act.
 
-NextDue should feel like a maintained personal operations layer. It suggests a source-backed starter pack; the user confirms applicability and exact dates.
+NextDue should feel like a maintained personal operations layer. It matches source-backed country rules to explicit user facts; the user confirms applicability and exact dates.
 
 ### Proof points used in promotion
 
@@ -208,7 +208,7 @@ Every page contains:
 
 ### Telegram community owner — Russian
 
-> Здравствуйте! Мы запускаем NextDue — приватный календарь документов и обязательных дат для людей, которые живут между Россией и Узбекистаном. Пользователь выбирает людей, страны и имущество, затем проверяет список с официальными источниками и сам подтверждает, что относится к нему. Мы не храним номера паспортов и не выдаём продукт за юридическую консультацию. Ищем 30–50 участников для закрытой беты и готовы бесплатно подготовить отдельный стартовый набор для вашей аудитории, а также публично исправлять найденные неточности. Можно показать вам демо и процесс проверки источников на 20-минутном звонке?
+> Здравствуйте! Мы запускаем NextDue — приватный календарь документов и обязательных дат для людей, которые живут между Россией и Узбекистаном. Пользователь указывает людей, гражданства, основания пребывания и имущество, затем проверяет подходящие правила с официальными источниками и сам подтверждает даты. Мы не храним номера паспортов. Ищем 30–50 участников для закрытой беты и готовы бесплатно подготовить набор правил для вашей аудитории, а также публично исправлять найденные неточности. Можно показать вам демо и процесс проверки источников на 20-минутном звонке?
 
 ### Uzbek creator/expert — Uzbek
 
@@ -216,7 +216,7 @@ Every page contains:
 
 ### Relocation agency — English
 
-> We are building NextDue for households managing documents and obligations across Russia and Uzbekistan. It converts a client’s people, jurisdictions, and possessions into a reviewable starter pack, then tracks confirmed dates and calendar reminders. Each catalog entry includes scope, source, and review date; we do not require document numbers or scans. We would like to pilot a co-branded pack for 20 clients. The pilot includes anonymized aggregate activation reporting, a correction workflow, and no access to clients’ personal plans. Would a 30-minute product and data-boundary review be useful next week?
+> We are building NextDue for households managing documents and obligations across Russia and Uzbekistan. It matches a client’s citizenships, legal statuses, and exact possessions to reviewable country rules, then tracks confirmed dates and calendar reminders. Each catalog entry includes scope, source, and review date; we do not require document numbers or scans. We would like to pilot a co-branded rules catalog for 20 clients. The pilot includes anonymized aggregate activation reporting, a correction workflow, and no access to clients’ personal plans. Would a 30-minute product and data-boundary review be useful next week?
 
 ### Follow-up after no response
 
@@ -229,7 +229,7 @@ The referral loop begins only after a user has confirmed at least three items or
 1. User activates a meaningful plan.
 2. Product offers either:
    - “Invite a family member to manage this household,” or
-   - “Share this Russia–Uzbekistan starter pack.”
+   - “Share these Russia–Uzbekistan country rules.”
 3. Shared pack contains no personal dates or document details.
 4. Invitee confirms three items.
 5. Both households receive one month of Plus or an equivalent annual-plan credit.
@@ -306,7 +306,7 @@ Never claim:
 
 Approved claim pattern:
 
-- “A maintained starter pack based on your situation.”
+- “Country rules matched to your situation.”
 - “Official sources linked and review dates shown.”
 - “You confirm what applies before it enters your plan.”
 - “One timeline for people, possessions, and dates across countries.”

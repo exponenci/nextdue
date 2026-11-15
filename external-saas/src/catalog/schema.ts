@@ -10,6 +10,7 @@ export type ApplicabilityRule =
   | { any: ApplicabilityRule[] }
   | { not: ApplicabilityRule }
   | { eq: [string, string | number | boolean] }
+  | { contains: [string, string | number | boolean] }
   | { in: [string, Array<string | number | boolean>] };
 
 const applicabilityRule: z.ZodType<ApplicabilityRule> = z.lazy(() => z.union([
@@ -17,6 +18,7 @@ const applicabilityRule: z.ZodType<ApplicabilityRule> = z.lazy(() => z.union([
   z.object({ any: z.array(applicabilityRule).min(1) }).strict(),
   z.object({ not: applicabilityRule }).strict(),
   z.object({ eq: z.tuple([fieldPath, scalar]) }).strict(),
+  z.object({ contains: z.tuple([fieldPath, scalar]) }).strict(),
   z.object({ in: z.tuple([fieldPath, z.array(scalar).min(1)]) }).strict()
 ]));
 

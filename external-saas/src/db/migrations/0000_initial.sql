@@ -74,9 +74,11 @@ create table app.people (
 create table app.assets (
   subject_id uuid primary key references app.subjects(id) on delete cascade,
   asset_type text not null,
+  asset_subtype text,
   owner_subject_id uuid references app.subjects(id),
   registered_country text,
   current_country text,
+  details text,
   attributes jsonb not null default '{}'::jsonb,
   check (registered_country is null or registered_country ~ '^[A-Z]{2}$'),
   check (current_country is null or current_country ~ '^[A-Z]{2}$')
@@ -87,9 +89,12 @@ create table app.subject_jurisdictions (
   household_id uuid not null references app.households(id) on delete cascade,
   subject_id uuid not null references app.subjects(id) on delete cascade,
   country_code text not null check (country_code ~ '^[A-Z]{2}$'),
-  relation text not null check (relation in ('citizenship', 'residence', 'tax', 'registration', 'location', 'destination')),
+  relation text not null check (relation in ('citizenship', 'residence', 'stay', 'tax', 'registration', 'location', 'destination', 'other')),
+  legal_basis text,
+  exact_status text,
   starts_on date,
   ends_on date,
+  notes text,
   check (ends_on is null or starts_on is null or ends_on >= starts_on)
 );
 create index subject_jurisdictions_household_idx on app.subject_jurisdictions(household_id);

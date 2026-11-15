@@ -42,7 +42,7 @@ Open `http://127.0.0.1:4173`.
 
 ## Trust boundary
 
-Country packs are maintained starter packs, not a claim of exhaustive legal, tax, or immigration advice. Users confirm what applies and enter exact dates from their own documents or official notices. High-applicability-risk items are marked explicitly.
+Country rules are matched to explicit citizenship, legal-status, and possession facts. Users confirm what applies and enter exact dates from their own documents or official notices. Conditional items are marked explicitly.
 
 The static prototype stores data only in the browser. The external SaaS path separates sign-in from calendar consent, uses Google OAuth or generic OIDC, and scopes household data by account.
 

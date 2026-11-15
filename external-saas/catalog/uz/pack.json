@@ -5,21 +5,21 @@
   "status": "reviewed",
   "defaultLocale": "uz-Latn",
   "supportedLocales": ["uz-Latn", "ru", "en"],
-  "disclaimer": "Maintained starter pack, not exhaustive legal or tax advice. Confirm applicability and exact dates with the relevant authority.",
+  "disclaimer": "Each rule records its official source and review date. Confirm rules marked as conditional with the relevant authority.",
   "items": [
     {
       "id": "uz-id-card-expiry",
       "category": "identity",
       "subjectKind": "person",
-      "applicability": { "any": [{ "eq": ["person.citizenship", "UZ"] }, { "eq": ["person.hasUzbekIdCard", true] }] },
+      "applicability": { "contains": ["person.citizenships", "UZ"] },
       "scheduleTemplate": { "kind": "expiry_manual" },
       "defaultReminderInput": "180/90/30/7/0",
       "confidence": "high",
       "risk": "legal",
       "translations": {
-        "en": { "title": "ID card expiry", "summary": "Validity depends on age. Track the exact date printed on the document.", "audience": "Uzbekistan citizen or eligible resident" },
-        "ru": { "title": "Срок действия ID-карты", "summary": "Срок зависит от возраста. Отслеживайте точную дату в документе.", "audience": "Гражданин Узбекистана или соответствующий резидент" },
-        "uz-Latn": { "title": "ID-karta amal qilish muddati", "summary": "Amal qilish muddati yoshga bog‘liq. Hujjatdagi aniq sanani kuzating.", "audience": "O‘zbekiston fuqarosi yoki tegishli rezident" }
+        "en": { "title": "ID card expiry", "summary": "Validity depends on age. Track the exact date printed on the document.", "audience": "Uzbekistan citizen" },
+        "ru": { "title": "Срок действия ID-карты", "summary": "Срок зависит от возраста. Отслеживайте точную дату в документе.", "audience": "Гражданин Узбекистана" },
+        "uz-Latn": { "title": "ID-karta amal qilish muddati", "summary": "Amal qilish muddati yoshga bog‘liq. Hujjatdagi aniq sanani kuzating.", "audience": "O‘zbekiston fuqarosi" }
       },
       "sources": [{ "authority": "Uzbekistan MyGov", "title": "Passport and ID card", "url": "https://my.gov.uz/en/life-situations/38d089e4-697c-494a-a5ac-d2ca1eeea49a", "reviewedAt": "2026-11-15" }]
     },
@@ -43,7 +43,7 @@
       "id": "uz-foreigner-temporary-registration",
       "category": "residence",
       "subjectKind": "person",
-      "applicability": { "all": [{ "eq": ["person.currentCountry", "UZ"] }, { "not": { "eq": ["person.citizenship", "UZ"] } }] },
+      "applicability": { "all": [{ "contains": ["person.countryRelationshipCountries", "UZ"] }, { "not": { "contains": ["person.citizenships", "UZ"] } }] },
       "scheduleTemplate": { "kind": "relative_manual", "days": 3, "workingDays": true },
       "defaultReminderInput": "3/1/0",
       "confidence": "high",
@@ -59,7 +59,7 @@
       "id": "uz-passport-readiness-entry",
       "category": "identity",
       "subjectKind": "person",
-      "applicability": { "all": [{ "eq": ["person.destinationCountry", "UZ"] }, { "not": { "eq": ["person.citizenship", "UZ"] } }] },
+      "applicability": { "all": [{ "contains": ["person.destinationCountries", "UZ"] }, { "not": { "contains": ["person.citizenships", "UZ"] } }] },
       "scheduleTemplate": { "kind": "travel_readiness", "validityDays": 183 },
       "defaultReminderInput": "180/120/90/30/7/0",
       "confidence": "medium",

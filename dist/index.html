@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1ea">
+  <meta name="description" content="A private, calm planner for document expiries, recurring obligations, and calendar-ready reminders.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests">
+  <title>NextDue · Life admin, before it becomes urgent</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="icon-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+    <symbol id="icon-plane" viewBox="0 0 24 24"><path d="m3 11 18-7-7 18-2-8-9-3Z"/><path d="m12 14 4-4"/></symbol>
+    <symbol id="icon-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></symbol>
+    <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></symbol>
+    <symbol id="icon-receipt" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6m-6 4h6"/></symbol>
+    <symbol id="icon-car" viewBox="0 0 24 24"><path d="m5 11 2-5h10l2 5"/><path d="M4 11h16v7H4z"/><path d="M7 18v2m10-2v2M7 14h.01M17 14h.01"/></symbol>
+    <symbol id="icon-building" viewBox="0 0 24 24"><path d="M5 21V4h10v17M15 9h4v12M8 8h4m-4 4h4m-4 4h4"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M17 11a4 4 0 0 1 4 4v2m-5-14a4 4 0 0 1 0 8"/></symbol>
+    <symbol id="icon-heart" viewBox="0 0 24 24"><path d="M20.8 5.7a5.3 5.3 0 0 0-7.5 0L12 7l-1.3-1.3a5.3 5.3 0 0 0-7.5 7.5L12 22l8.8-8.8a5.3 5.3 0 0 0 0-7.5Z"/></symbol>
+    <symbol id="icon-bookmark" viewBox="0 0 24 24"><path d="M6 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18l-6-4-6 4V4Z"/></symbol>
+    <symbol id="icon-briefcase" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V4h8v3M3 12h18"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z"/><path d="m19 14 .8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14Z"/></symbol>
+    <symbol id="icon-calendar-plus" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18m-9 3v6m-3-3h6"/></symbol>
+    <symbol id="icon-arrow-bend" viewBox="0 0 24 24"><path d="M7 7h7a5 5 0 0 1 5 5v5"/><path d="m15 14 4 4 4-4"/></symbol>
+    <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4L16.5 3.5Z"/></symbol>
+    <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="icon-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></symbol>
+    <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M5 21h14"/></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 14H7L6 7"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9"/><path d="M19 13v7H4V5h7"/></symbol>
+  </svg>
+
+  <div id="setup-view"><div id="setup-root"></div></div>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand sidebar-brand" href="#" data-action="change-view" data-view="today"><span class="brand-mark"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-check"></use></svg></span><span>NextDue</span></a>
+      <nav class="side-nav" aria-label="Primary navigation">
+        <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Today</span></button>
+        <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span>Plan</span></button>
+        <button data-action="change-view" data-view="library"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span>Library</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="local-badge" data-action="privacy-info"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span><strong>Private by default</strong><small>Saved on this device</small></span></button>
+        <nav class="side-nav"><button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Settings</span></button></nav>
+      </div>
+    </aside>
+    <main class="app-main"><div id="view-root" class="view-root"></div></main>
+    <nav class="mobile-nav" aria-label="Mobile navigation">
+      <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Today</span></button>
+      <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span>Plan</span></button>
+      <button class="mobile-add" data-action="add-item" aria-label="Add deadline"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></button>
+      <button data-action="change-view" data-view="library"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span>Library</span></button>
+      <button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Settings</span></button>
+    </nav>
+  </div>
+
+  <dialog id="item-dialog" class="modal">
+    <form id="item-form" class="modal-card">
+      <input type="hidden" name="id">
+      <header class="modal-header"><div><span class="eyebrow">Your plan</span><h2 id="item-dialog-title">Add a deadline</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
+      <div class="modal-body">
+        <label><span>What are you tracking?</span><input name="title" maxlength="160" required placeholder="e.g. Passport"></label>
+        <div class="form-grid two">
+          <label><span>Category</span><select name="category"><option value="identity">Identity & travel</option><option value="residence">Residence</option><option value="tax">Tax & money</option><option value="transport">Transport</option><option value="property">Property</option><option value="family">Family</option><option value="health">Health</option><option value="custom">Custom</option></select></label>
+          <label><span>Date type</span><select name="kind"><option value="expiry">Expires on</option><option value="due">Due once</option><option value="recurring">Repeats</option></select></label>
+        </div>
+        <div class="form-grid two">
+          <label><span id="date-label">Expiry date</span><input type="date" name="date"><small>Leave blank if you need to check it later.</small></label>
+          <label id="frequency-field" hidden><span>Repeats</span><select name="frequency"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
+          <label><span>Reminder plan</span><select name="reminderPlan"><option value="early">Plan well ahead · 180/120/90/30 days</option><option value="standard">Standard · 60/30/7 days</option><option value="compact">Closer to due · 30/7/1 days</option><option value="monthly">Monthly routine · 7/1/0 days</option></select></label>
+        </div>
+        <details class="more-options"><summary>More options</summary><div class="details-content">
+          <div class="form-grid two"><label><span>Who is it for?</span><input name="person" maxlength="60" value="Me"></label><label><span>Country / jurisdiction</span><select name="jurisdiction"><option value="">Not specified</option><option value="AU">Australia</option><option value="BR">Brazil</option><option value="CA">Canada</option><option value="CN">China</option><option value="FR">France</option><option value="DE">Germany</option><option value="IN">India</option><option value="IT">Italy</option><option value="JP">Japan</option><option value="NL">Netherlands</option><option value="PL">Poland</option><option value="PT">Portugal</option><option value="SG">Singapore</option><option value="ES">Spain</option><option value="AE">United Arab Emirates</option><option value="GB">United Kingdom</option><option value="US">United States</option><option value="OTHER">Other / not listed</option></select></label></div>
+          <label><span>Private note <small>optional</small></span><textarea name="notes" rows="3" maxlength="500" placeholder="Appointment link, office name, or what to prepare"></textarea></label>
+        </div></details>
+      </div>
+      <footer class="modal-footer"><div><button type="button" id="delete-item" class="danger-link" hidden><svg class="icon" aria-hidden="true"><use href="#icon-trash"></use></svg> Remove</button><button type="button" id="complete-item" class="text-button" hidden><svg class="icon" aria-hidden="true"><use href="#icon-check-circle"></use></svg> Mark complete</button></div><div><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-item">Save deadline</button></div></footer>
+    </form>
+  </dialog>
+
+  <dialog id="privacy-dialog" class="modal small-modal"><div class="modal-card">
+    <header class="modal-header"><div><span class="eyebrow">Privacy</span><h2>Your dates stay here</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
+    <div class="modal-body privacy-copy"><div class="privacy-hero"><svg class="icon" aria-hidden="true"><use href="#icon-shield-check"></use></svg></div><p>NextDue stores your profile and dates in this browser. This release has no account, backend, analytics, or advertising trackers.</p><ul><li>We do not ask for passport numbers, tax IDs, addresses, or scans.</li><li>Browser storage is convenient, not guaranteed encrypted. Avoid shared devices.</li><li>Download a JSON backup before clearing browser data or changing devices.</li></ul><p class="microcopy">Calendar files leave the app only when you download or open them.</p></div>
+    <footer class="modal-footer right"><button class="primary-button" data-action="close-dialog">Got it</button></footer>
+  </div></dialog>
+
+  <dialog id="calendar-dialog" class="modal small-modal"><div class="modal-card">
+    <header class="modal-header"><div><span class="eyebrow">One event</span><h2>Add to a calendar</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
+    <div class="modal-body"><p id="calendar-item-name" class="dialog-lead"></p><a id="google-link" class="calendar-provider" target="_blank" rel="noopener">Google Calendar <svg class="icon" aria-hidden="true"><use href="#icon-external"></use></svg></a><a id="outlook-link" class="calendar-provider" target="_blank" rel="noopener">Outlook Calendar <svg class="icon" aria-hidden="true"><use href="#icon-external"></use></svg></a><p class="microcopy">These links create one deadline event. Use “Export calendar” for the full reminder plan.</p></div>
+  </div></dialog>
+
+  <input id="restore-input" type="file" accept="application/json,.json" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript><div class="noscript">NextDue needs JavaScript to keep your plan in this browser and create calendar files.</div></noscript>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

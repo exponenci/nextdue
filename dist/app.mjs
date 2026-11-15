@@ -3,12 +3,12 @@ import {
   daysBetween, formatReminderSequence, generateICS, getCalendarEventCount, getItemStatus,
   getNextOccurrence, groupItemsForToday, makeItemFromCatalog,
   parseISODate, parseReminderSequence, sortItems, toISODate, validateBackup,
-} from "./logic.mjs";
+} from "./logic.mjs?v=20261116-ux4";
 import {
   CATALOG, CATALOG_REVIEWED_AT, CATALOG_VERSION, COUNTRY_META,
   catalogCountryName, localized, matchCatalog,
-} from "./catalog.mjs";
-import { SUPPORTED_LOCALES, t } from "./i18n.mjs";
+} from "./catalog.mjs?v=20261116-ux4";
+import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261116-ux4";
 
 const DB_NAME = "nextdue-local";
 const DB_VERSION = 1;

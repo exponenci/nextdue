@@ -105,6 +105,68 @@ export const subjectJurisdictions = appSchema.table("subject_jurisdictions", {
   notes: text("notes")
 }, (table) => [index("subject_jurisdictions_household_idx").on(table.householdId)]);
 
+export const personCitizenships = appSchema.table("person_citizenships", {
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  personSubjectId: uuid("person_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
+  countryCode: text("country_code").notNull()
+}, (table) => [
+  primaryKey({ columns: [table.personSubjectId, table.countryCode] }),
+  index("person_citizenships_household_idx").on(table.householdId)
+]);
+
+export const personCountryContexts = appSchema.table("person_country_contexts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  personSubjectId: uuid("person_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
+  countryCode: text("country_code").notNull(),
+  contextType: text("context_type").notNull().$type<"lives_now" | "planned_trip" | "planned_move">(),
+  purpose: text("purpose").notNull().$type<"visit" | "work" | "study" | "family" | "business" | "protection" | "long_term" | "unknown">(),
+  startsOn: date("starts_on", { mode: "string" }),
+  intendedUntil: date("intended_until", { mode: "string" })
+}, (table) => [index("person_country_contexts_household_idx").on(table.householdId)]);
+
+export const legalizationPaths = appSchema.table("legalization_paths", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  countryContextId: uuid("country_context_id").notNull().references(() => personCountryContexts.id, { onDelete: "cascade" }),
+  routeCode: text("route_code").notNull(),
+  stage: text("stage").notNull().$type<"exploring" | "preparing" | "applied" | "active" | "expired" | "ended">(),
+  region: text("region"),
+  locality: text("locality"),
+  sponsorRef: text("sponsor_ref"),
+  employerRef: text("employer_ref"),
+  institutionRef: text("institution_ref"),
+  facts: jsonb("facts").notNull().default({})
+}, (table) => [index("legalization_paths_household_idx").on(table.householdId)]);
+
+export const statusDocuments = appSchema.table("status_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  legalizationPathId: uuid("legalization_path_id").notNull().references(() => legalizationPaths.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  issuerCountry: text("issuer_country").notNull(),
+  status: text("status").notNull().$type<"planned" | "applied" | "active" | "expired" | "replaced" | "cancelled">(),
+  issuedAt: date("issued_at", { mode: "string" }),
+  printedExpiry: date("printed_expiry", { mode: "string" }),
+  numberHint: text("number_hint"),
+  label: text("label"),
+  note: text("note")
+}, (table) => [index("status_documents_household_idx").on(table.householdId)]);
+
+export const assetDocuments = appSchema.table("asset_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  assetSubjectId: uuid("asset_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  issuerCountry: text("issuer_country"),
+  status: text("status").notNull().$type<"needed" | "active" | "expired" | "replaced" | "not_applicable">(),
+  issuedAt: date("issued_at", { mode: "string" }),
+  printedExpiry: date("printed_expiry", { mode: "string" }),
+  recurrence: jsonb("recurrence"),
+  ruleId: text("rule_id"),
+  note: text("note")
+}, (table) => [index("asset_documents_household_idx").on(table.householdId)]);
+
 export const catalogPacks = appSchema.table("catalog_packs", {
   id: uuid("id").primaryKey().defaultRandom(),
   countryCode: text("country_code").notNull(),
@@ -160,6 +222,10 @@ export const obligations = appSchema.table("obligations", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
   subjectId: uuid("subject_id").references(() => subjects.id),
+  countryContextId: uuid("country_context_id").references(() => personCountryContexts.id, { onDelete: "set null" }),
+  legalizationPathId: uuid("legalization_path_id").references(() => legalizationPaths.id, { onDelete: "set null" }),
+  statusDocumentId: uuid("status_document_id").references(() => statusDocuments.id, { onDelete: "set null" }),
+  assetDocumentId: uuid("asset_document_id").references(() => assetDocuments.id, { onDelete: "set null" }),
   countryCode: text("country_code").notNull(),
   catalogItemId: text("catalog_item_id"),
   catalogVersion: text("catalog_version"),

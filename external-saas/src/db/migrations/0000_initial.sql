@@ -99,6 +99,77 @@ create table app.subject_jurisdictions (
 );
 create index subject_jurisdictions_household_idx on app.subject_jurisdictions(household_id);
 
+-- v4 life-context model. subject_jurisdictions is retained only for importing
+-- older backups; new writes use the normalized tables below.
+create table app.person_citizenships (
+  household_id uuid not null references app.households(id) on delete cascade,
+  person_subject_id uuid not null references app.subjects(id) on delete cascade,
+  country_code text not null check (country_code ~ '^[A-Z]{2}$'),
+  primary key (person_subject_id, country_code)
+);
+create index person_citizenships_household_idx on app.person_citizenships(household_id);
+
+create table app.person_country_contexts (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  person_subject_id uuid not null references app.subjects(id) on delete cascade,
+  country_code text not null check (country_code ~ '^[A-Z]{2}$'),
+  context_type text not null check (context_type in ('lives_now', 'planned_trip', 'planned_move')),
+  purpose text not null check (purpose in ('visit', 'work', 'study', 'family', 'business', 'protection', 'long_term', 'unknown')),
+  starts_on date,
+  intended_until date,
+  check (intended_until is null or starts_on is null or intended_until >= starts_on)
+);
+create index person_country_contexts_household_idx on app.person_country_contexts(household_id);
+create unique index one_current_residence_per_person_idx on app.person_country_contexts(person_subject_id) where context_type = 'lives_now';
+
+create table app.legalization_paths (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  country_context_id uuid not null references app.person_country_contexts(id) on delete cascade,
+  route_code text not null,
+  stage text not null check (stage in ('exploring', 'preparing', 'applied', 'active', 'expired', 'ended')),
+  region text,
+  locality text,
+  sponsor_ref text,
+  employer_ref text,
+  institution_ref text,
+  facts jsonb not null default '{}'::jsonb
+);
+create index legalization_paths_household_idx on app.legalization_paths(household_id);
+
+create table app.status_documents (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  legalization_path_id uuid not null references app.legalization_paths(id) on delete cascade,
+  kind text not null,
+  issuer_country text not null check (issuer_country ~ '^[A-Z]{2}$'),
+  status text not null check (status in ('planned', 'applied', 'active', 'expired', 'replaced', 'cancelled')),
+  issued_at date,
+  printed_expiry date,
+  number_hint text,
+  label text,
+  note text,
+  check (printed_expiry is null or issued_at is null or printed_expiry >= issued_at)
+);
+create index status_documents_household_idx on app.status_documents(household_id);
+
+create table app.asset_documents (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  asset_subject_id uuid not null references app.subjects(id) on delete cascade,
+  kind text not null,
+  issuer_country text check (issuer_country is null or issuer_country ~ '^[A-Z]{2}$'),
+  status text not null check (status in ('needed', 'active', 'expired', 'replaced', 'not_applicable')),
+  issued_at date,
+  printed_expiry date,
+  recurrence jsonb,
+  rule_id text,
+  note text,
+  check (printed_expiry is null or issued_at is null or printed_expiry >= issued_at)
+);
+create index asset_documents_household_idx on app.asset_documents(household_id);
+
 create table app.catalog_packs (
   id uuid primary key default gen_random_uuid(),
   country_code text not null check (country_code ~ '^[A-Z]{2}$'),
@@ -159,6 +230,10 @@ create table app.obligations (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references app.households(id) on delete cascade,
   subject_id uuid references app.subjects(id),
+  country_context_id uuid references app.person_country_contexts(id) on delete set null,
+  legalization_path_id uuid references app.legalization_paths(id) on delete set null,
+  status_document_id uuid references app.status_documents(id) on delete set null,
+  asset_document_id uuid references app.asset_documents(id) on delete set null,
   country_code text not null check (country_code ~ '^[A-Z]{2}$'),
   catalog_item_id text,
   catalog_version text,
@@ -232,6 +307,11 @@ alter table app.subjects enable row level security;
 alter table app.people enable row level security;
 alter table app.assets enable row level security;
 alter table app.subject_jurisdictions enable row level security;
+alter table app.person_citizenships enable row level security;
+alter table app.person_country_contexts enable row level security;
+alter table app.legalization_paths enable row level security;
+alter table app.status_documents enable row level security;
+alter table app.asset_documents enable row level security;
 alter table app.documents enable row level security;
 alter table app.obligations enable row level security;
 alter table app.reminder_deliveries enable row level security;
@@ -249,6 +329,16 @@ create policy people_access on app.people
 create policy assets_access on app.assets
   using (app.can_access_subject(subject_id)) with check (app.can_access_subject(subject_id));
 create policy jurisdictions_access on app.subject_jurisdictions
+  using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
+create policy person_citizenships_access on app.person_citizenships
+  using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
+create policy person_country_contexts_access on app.person_country_contexts
+  using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
+create policy legalization_paths_access on app.legalization_paths
+  using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
+create policy status_documents_access on app.status_documents
+  using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
+create policy asset_documents_access on app.asset_documents
   using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));
 create policy documents_access on app.documents
   using (app.can_access_household(household_id)) with check (app.can_access_household(household_id));

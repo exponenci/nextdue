@@ -36,7 +36,7 @@ test("matches people and possessions in different countries", () => {
   assert.ok(matches.some(({ entry, assetId }) => entry.id === "uz_property_land_tax_installments" && assetId === "flat-uz"));
   assert.ok(matches.some(({ entry, assetId }) => entry.id === "ru_individual_property_tax_notice" && assetId === "flat-ru"));
   assert.ok(!matches.some(({ entry }) => entry.id === "uz_id_card_expiry"), "Uzbek residence must not unlock an Uzbek citizen ID");
-  assert.equal(CATALOG.length, 12);
+  assert.ok(CATALOG.length >= 24);
 });
 
 test("gates national documents by citizenship and leaves driving licences manual", () => {
@@ -61,6 +61,30 @@ test("matches a country obligation only to the relevant legal basis", () => {
     people: [{ id: "resident", citizenships: ["UZ"], jurisdictions: [{ country: "RU", type: "residence", basis: "vnzh" }] }], assets: [],
   });
   assert.ok(permitMatches.some(({ entry }) => entry.id === "ru_residence_permit_annual_confirmation"));
+});
+
+test("matches the reviewed Russia patent checklist without the work-permit branch", () => {
+  const matches = matchCatalog({ people: [{ id: "worker", citizenships: ["UZ"], jurisdictions: [{ country: "RU", type: "residence", purpose: "work", route: "work_patent" }] }], assets: [] });
+  const ids = new Set(matches.map(({ entry }) => entry.id));
+  for (const id of ["ru_foreigner_entry_migration_record", "ru_foreigner_migration_registration", "ru_work_patent_document", "ru_work_medical_examination", "ru_work_medical_cover", "ru_work_language_law_evidence", "ru_foreign_worker_contract", "ru_patent_advance_tax_payments", "ru_patent_contract_copy_submission", "ru_employer_foreign_worker_notifications"]) assert.ok(ids.has(id), `${id} must be included`);
+  assert.ok(!ids.has("ru_work_permit_document"));
+  assert.ok(!ids.has("ru_eaeu_employment_exemption"));
+});
+
+test("keeps EAEU employment separate from the Russia patent and work-permit routes", () => {
+  const matches = matchCatalog({ people: [{ id: "worker", citizenships: ["KZ"], jurisdictions: [{ country: "RU", type: "residence", purpose: "work", route: "eaeu_employment" }] }], assets: [] });
+  const ids = new Set(matches.map(({ entry }) => entry.id));
+  assert.ok(ids.has("ru_eaeu_employment_exemption"));
+  assert.ok(!ids.has("ru_work_patent_document"));
+  assert.ok(!ids.has("ru_work_permit_document"));
+});
+
+test("creates a separate vehicle-paper checklist for every exact vehicle", () => {
+  const matches = matchCatalog({ people: [{ id: "owner", citizenships: ["IT"], jurisdictions: [{ country: "IT", type: "residence", route: "citizen" }] }], assets: [{ id: "car-it", type: "vehicle", country: "IT", ownerId: "owner" }, { id: "car-ru", type: "vehicle", country: "RU", ownerId: "owner" }] });
+  for (const assetId of ["car-it", "car-ru"]) {
+    const kinds = new Set(matches.filter((match) => match.assetId === assetId).map((match) => match.entry.checklistKind));
+    for (const kind of ["registration_title", "insurance", "inspection", "tax_fee", "import_customs_foreign_plate"]) assert.ok(kinds.has(kind), `${assetId} is missing ${kind}`);
+  }
 });
 
 test("ships complete localized catalog records with stable unique ids", () => {
@@ -120,5 +144,5 @@ test("exports portable all-day ICS with alarms and stable identifiers", () => {
 
 test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup({ version: 99 }), /not supported/);
-  assert.throws(() => validateBackup({ version: 3, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
+  assert.throws(() => validateBackup({ version: 4, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
 });

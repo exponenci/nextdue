@@ -66,6 +66,68 @@ create table app.subject_jurisdictions (
 );
 create index subject_jurisdictions_household_idx on app.subject_jurisdictions(household_id);
 
+-- Normalized v4 model. subject_jurisdictions remains import-only for older backups.
+create table app.person_citizenships (
+  household_id uuid not null references app.households(id) on delete cascade,
+  person_subject_id uuid not null references app.subjects(id) on delete cascade,
+  country_code char(2) not null,
+  primary key (person_subject_id, country_code)
+);
+
+create table app.person_country_contexts (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  person_subject_id uuid not null references app.subjects(id) on delete cascade,
+  country_code char(2) not null,
+  context_type text not null check (context_type in ('lives_now','planned_trip','planned_move')),
+  purpose text not null check (purpose in ('visit','work','study','family','business','protection','long_term','unknown')),
+  starts_on date,
+  intended_until date
+);
+create unique index one_current_residence_per_person_idx on app.person_country_contexts(person_subject_id) where context_type = 'lives_now';
+
+create table app.legalization_paths (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  country_context_id uuid not null references app.person_country_contexts(id) on delete cascade,
+  route_code text not null,
+  stage text not null check (stage in ('exploring','preparing','applied','active','expired','ended')),
+  region text,
+  locality text,
+  sponsor_ref text,
+  employer_ref text,
+  institution_ref text,
+  facts jsonb not null default '{}'::jsonb
+);
+
+create table app.status_documents (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  legalization_path_id uuid not null references app.legalization_paths(id) on delete cascade,
+  kind text not null,
+  issuer_country char(2) not null,
+  status text not null,
+  issued_at date,
+  printed_expiry date,
+  number_hint text,
+  label text,
+  note text
+);
+
+create table app.asset_documents (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references app.households(id) on delete cascade,
+  asset_subject_id uuid not null references app.subjects(id) on delete cascade,
+  kind text not null,
+  issuer_country char(2),
+  status text not null,
+  issued_at date,
+  printed_expiry date,
+  recurrence jsonb,
+  rule_id text,
+  note text
+);
+
 create table app.catalog_packs (
   id uuid primary key default gen_random_uuid(),
   country_code char(2) not null,
@@ -113,6 +175,10 @@ create table app.obligations (
   household_id uuid not null references app.households(id) on delete cascade,
   subject_id uuid references app.subjects(id),
   asset_subject_id uuid references app.subjects(id),
+  country_context_id uuid references app.person_country_contexts(id) on delete set null,
+  legalization_path_id uuid references app.legalization_paths(id) on delete set null,
+  status_document_id uuid references app.status_documents(id) on delete set null,
+  asset_document_id uuid references app.asset_documents(id) on delete set null,
   country_code char(2) not null,
   catalog_item_id text,
   catalog_version text,
@@ -159,6 +225,11 @@ create table app.audit_events (
 
 alter table app.subjects enable row level security;
 alter table app.subject_jurisdictions enable row level security;
+alter table app.person_citizenships enable row level security;
+alter table app.person_country_contexts enable row level security;
+alter table app.legalization_paths enable row level security;
+alter table app.status_documents enable row level security;
+alter table app.asset_documents enable row level security;
 alter table app.obligations enable row level security;
 alter table app.reminder_deliveries enable row level security;
 alter table app.calendar_feeds enable row level security;
@@ -181,6 +252,11 @@ $$;
 
 create policy household_subjects on app.subjects using (app.can_access_household(household_id));
 create policy household_jurisdictions on app.subject_jurisdictions using (app.can_access_household(household_id));
+create policy household_person_citizenships on app.person_citizenships using (app.can_access_household(household_id));
+create policy household_person_country_contexts on app.person_country_contexts using (app.can_access_household(household_id));
+create policy household_legalization_paths on app.legalization_paths using (app.can_access_household(household_id));
+create policy household_status_documents on app.status_documents using (app.can_access_household(household_id));
+create policy household_asset_documents on app.asset_documents using (app.can_access_household(household_id));
 create policy household_obligations on app.obligations using (app.can_access_household(household_id));
 create policy household_deliveries on app.reminder_deliveries using (app.can_access_household(household_id));
 create policy household_feeds on app.calendar_feeds using (app.can_access_household(household_id));

@@ -5,9 +5,9 @@
 The deployed private preview is a buildless browser application with no runtime API or third-party dependency.
 
 ```text
-people + jurisdictions + possessions
+people + citizenships + country contexts + possessions
         ↓ deterministic catalog matcher
-source-backed matched country rules
+country-specific purpose/route checks + source-backed rules
         ↓ user confirms applicability and date
 tracked obligation
         ↓ recurrence + reminder offsets
@@ -20,7 +20,7 @@ Every possession has its own country and owner. Every obligation can reference a
 
 ## Catalog
 
-The starter catalog is versioned (`2026.11`) and currently contains 12 Russia/Uzbekistan entries. Each entry includes:
+The catalog is versioned (`2026.11.1`) and currently contains 24 Russia/Uzbekistan entries plus exact-vehicle checklist templates. Each entry includes:
 
 - stable ID, jurisdiction, category, and subject type;
 - translated title, summary, and audience;
@@ -50,7 +50,7 @@ Recurring rules are expanded over a bounded 24-month window. All-day `VALUE=DATE
 - Dockerized Next.js App Router on Node;
 - Auth.js with Google and optional generic OIDC;
 - PostgreSQL tenant model and row-level isolation contracts;
-- account → subjects → jurisdictions/assets → catalog → obligations schema;
+- account → people → citizenships/country contexts → legalization paths/status documents → assets/asset documents → obligations;
 - background reminder worker and idempotent delivery keys;
 - English, Russian, and Uzbek locale routing;
 - downloadable/subscribed ICS first, direct calendar OAuth later;
@@ -60,4 +60,4 @@ Sign-in and calendar OAuth are separate. Calendar tokens require independent enc
 
 ## Verification
 
-The automated suite covers strict dates, month-end recurrence, multi-country matching, slash reminder validation, bounded recurrence, status calculation, ICS structure, and malformed backup rejection. Browser QA covers onboarding, per-country possessions, person/asset CRUD, catalog filters, all three locales, reminder validation, and 320px/desktop layouts.
+The automated suite covers strict dates, month-end recurrence, route-aware Russia employment matching, EAEU exclusions, one checklist per exact vehicle, slash reminder validation, bounded recurrence, status calculation, ICS structure, and malformed backup rejection. Browser QA covers searchable country pickers, Italy route isolation, Russia patent setup, Plan filters, per-country possessions, person/asset CRUD, catalog filters, all three locales, and mobile/desktop layouts.

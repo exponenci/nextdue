@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const CATEGORY_META = {
   identity: { label: "Identity & travel", icon: "passport", safeTitle: "Renew identity document" },

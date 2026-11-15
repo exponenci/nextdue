@@ -7,10 +7,10 @@ Start with Russian-speaking cross-border households, especially Russia ↔ Uzbek
 The durable model is broader:
 
 ```text
-household → people → jurisdictions → possessions → catalog obligations → confirmed dates → reminders
+household → people → citizenships + country contexts → country-specific routes → possessions + their documents → obligations → reminders
 ```
 
-Citizenship, residence, an asset's registration/location, and an obligation's jurisdiction are separate facts. A flat in Uzbekistan must not inherit the country of its owner who lives in Russia.
+Citizenship, current residence, travel or move plans, legalization routes, issued documents, and an asset's country are separate facts. Purpose is not a permit. Russian RVP/RVPO/VNZH codes never appear as routes for Italy or another country.
 
 ## Product promise
 
@@ -21,9 +21,9 @@ The runtime is deterministic. Catalog entries are versioned editorial data with 
 ## Information architecture
 
 - **Today:** act now, confirm missing dates, plan upcoming work, and see what is covered.
-- **Plan:** chronological obligations grouped by month.
-- **People & assets:** household ownership and country graph.
-- **Country packs:** reviewed Russia/Uzbekistan catalog with filters and sources.
+- **Plan:** a checklist by action state, plus a dated timeline and compact country/person/exact-possession filters.
+- **People & assets:** citizenship, current residence, country plans, and one checklist per exact possession.
+- **Country rules:** every published rule remains browsable, with matched countries and rules first.
 - **Settings:** language, calendar export, portability, and external SaaS path.
 
 ## Reminder model

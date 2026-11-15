@@ -8,11 +8,11 @@ It does not ask an AI to invent a compliance plan. It matches a household graph 
 
 ## Working prototype
 
-- Four-step onboarding: language and goal, people/jurisdictions, possessions by country, and catalog review.
+- Four-step onboarding: language and goal, citizenship/current residence/purpose/route, exact possessions by country, and full matched-checklist review.
 - Separate ownership and country for each person and possession.
-- Twelve source-backed starter entries for Russia and Uzbekistan, with official-source links, review date, scope, and applicability warnings.
+- Twenty-four source-backed Russia and Uzbekistan entries, plus registration, insurance, inspection, tax, and import checks for every exact vehicle.
 - English, Russian, and Uzbek Latin interface and catalog content.
-- Today, Plan, People & assets, Country packs, and Settings views.
+- Today, Checklist/Timeline Plan, People & assets, Country rules, and Settings views.
 - Expiry, one-off, monthly, and annual schedules.
 - User-defined slash reminder sequences such as `180/90/30/7/1/0`.
 - Bounded `.ics` export and one-event Google/Outlook links.

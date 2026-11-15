@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f1ea">
-  <meta name="description" content="A private, calm planner for document expiries, recurring obligations, and calendar-ready reminders.">
+  <meta name="theme-color" content="#f6f2ea">
+  <meta name="description" content="Source-backed life admin across people, possessions, and countries.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests">
-  <title>NextDue · Life admin, before it becomes urgent</title>
+  <title>NextDue · Life admin across countries</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css">
@@ -44,30 +44,36 @@
     <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-3h4l1 3m3 0-1 14H7L6 7"/></symbol>
     <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9"/><path d="M19 13v7H4V5h7"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
+    <symbol id="icon-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15"/></symbol>
+    <symbol id="icon-cloud" viewBox="0 0 24 24"><path d="M7 18h11a4 4 0 0 0 .8-7.9A7 7 0 0 0 5.5 8.4 4.8 4.8 0 0 0 7 18Z"/></symbol>
   </svg>
 
   <div id="setup-view"><div id="setup-root"></div></div>
 
   <div id="app-shell" class="app-shell" hidden>
     <aside class="sidebar">
-      <a class="brand sidebar-brand" href="#" data-action="change-view" data-view="today"><span class="brand-mark"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-check"></use></svg></span><span>NextDue</span></a>
+      <a class="brand sidebar-brand" href="#" data-action="change-view" data-view="today"><span class="brand-mark"><svg class="icon" width="18" height="18" aria-hidden="true"><use href="#icon-layers"></use></svg></span><span>NextDue</span></a>
       <nav class="side-nav" aria-label="Primary navigation">
-        <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Today</span></button>
-        <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span>Plan</span></button>
-        <button data-action="change-view" data-view="library"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span>Library</span></button>
+        <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span class="nav-label">Today</span></button>
+        <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span class="nav-label">Plan</span></button>
+        <button data-action="change-view" data-view="registry"><svg class="icon" aria-hidden="true"><use href="#icon-users"></use></svg><span class="nav-label">People &amp; assets</span></button>
+        <button data-action="change-view" data-view="catalog"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span class="nav-label">Country packs</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <button class="local-badge" data-action="privacy-info"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span><strong>Private by default</strong><small>Saved on this device</small></span></button>
-        <nav class="side-nav"><button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Settings</span></button></nav>
+        <button class="local-badge" data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span id="local-badge-copy"><strong>Private by default</strong><small>Saved on this device</small></span></button>
+        <nav class="side-nav"><button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span class="nav-label">Settings</span></button></nav>
       </div>
     </aside>
     <main class="app-main"><div id="view-root" class="view-root"></div></main>
     <nav class="mobile-nav" aria-label="Mobile navigation">
-      <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Today</span></button>
-      <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span>Plan</span></button>
+      <button data-action="change-view" data-view="today"><svg class="icon" aria-hidden="true"><use href="#icon-home"></use></svg><span class="nav-label">Today</span></button>
+      <button data-action="change-view" data-view="plan"><svg class="icon" aria-hidden="true"><use href="#icon-calendar"></use></svg><span class="nav-label">Plan</span></button>
       <button class="mobile-add" data-action="add-item" aria-label="Add deadline"><svg class="icon" aria-hidden="true"><use href="#icon-plus"></use></svg></button>
-      <button data-action="change-view" data-view="library"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span>Library</span></button>
-      <button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Settings</span></button>
+      <button data-action="change-view" data-view="registry"><svg class="icon" aria-hidden="true"><use href="#icon-users"></use></svg><span class="nav-label">Registry</span></button>
+      <button data-action="change-view" data-view="catalog"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"></use></svg><span class="nav-label">Catalog</span></button>
+      <button data-action="change-view" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span class="nav-label">Settings</span></button>
     </nav>
   </div>
 
@@ -76,22 +82,22 @@
       <input type="hidden" name="id">
       <header class="modal-header"><div><span class="eyebrow">Your plan</span><h2 id="item-dialog-title">Add a deadline</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
       <div class="modal-body">
-        <label><span>What are you tracking?</span><input name="title" maxlength="160" required placeholder="e.g. Passport"></label>
+        <label><span>Obligation or document</span><input name="title" maxlength="160" required placeholder="e.g. Property tax notice"></label>
         <div class="form-grid two">
           <label><span>Category</span><select name="category"><option value="identity">Identity & travel</option><option value="residence">Residence</option><option value="tax">Tax & money</option><option value="transport">Transport</option><option value="property">Property</option><option value="family">Family</option><option value="health">Health</option><option value="custom">Custom</option></select></label>
           <label><span>Date type</span><select name="kind"><option value="expiry">Expires on</option><option value="due">Due once</option><option value="recurring">Repeats</option></select></label>
         </div>
         <div class="form-grid two">
-          <label><span id="date-label">Expiry date</span><input type="date" name="date"><small>Leave blank if you need to check it later.</small></label>
+          <label><span>Confirmed date</span><input type="date" name="date"><small>Leave blank until you verify it.</small></label>
           <label id="frequency-field" hidden><span>Repeats</span><select name="frequency"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
-          <label><span>Reminder plan</span><select name="reminderPlan"><option value="early">Plan well ahead · 180/120/90/30 days</option><option value="standard">Standard · 60/30/7 days</option><option value="compact">Closer to due · 30/7/1 days</option><option value="monthly">Monthly routine · 7/1/0 days</option></select></label>
+          <label><span>Country / jurisdiction</span><select name="country"></select></label>
         </div>
-        <details class="more-options"><summary>More options</summary><div class="details-content">
-          <div class="form-grid two"><label><span>Who is it for?</span><input name="person" maxlength="60" value="Me"></label><label><span>Country / jurisdiction</span><select name="jurisdiction"><option value="">Not specified</option><option value="AU">Australia</option><option value="BR">Brazil</option><option value="CA">Canada</option><option value="CN">China</option><option value="FR">France</option><option value="DE">Germany</option><option value="IN">India</option><option value="IT">Italy</option><option value="JP">Japan</option><option value="NL">Netherlands</option><option value="PL">Poland</option><option value="PT">Portugal</option><option value="SG">Singapore</option><option value="ES">Spain</option><option value="AE">United Arab Emirates</option><option value="GB">United Kingdom</option><option value="US">United States</option><option value="OTHER">Other / not listed</option></select></label></div>
-          <label><span>Private note <small>optional</small></span><textarea name="notes" rows="3" maxlength="500" placeholder="Appointment link, office name, or what to prepare"></textarea></label>
-        </div></details>
+        <div class="form-grid two"><label><span>Owner / person</span><select name="subjectId"></select></label><label><span>Linked possession</span><select name="assetId"></select></label></div>
+        <label><span>Reminder sequence</span><input name="reminderInput" maxlength="100" inputmode="numeric" placeholder="180/90/30/7/1/0"><small>Days before the deadline, separated by /.</small></label>
+        <output id="reminder-preview" class="reminder-preview" aria-live="polite"></output>
+        <label><span>Private note <small>optional</small></span><textarea name="notes" rows="3" maxlength="500" placeholder="What to prepare or where to check"></textarea></label>
       </div>
-      <footer class="modal-footer"><div><button type="button" id="delete-item" class="danger-link" hidden><svg class="icon" aria-hidden="true"><use href="#icon-trash"></use></svg> Remove</button><button type="button" id="complete-item" class="text-button" hidden><svg class="icon" aria-hidden="true"><use href="#icon-check-circle"></use></svg> Mark complete</button></div><div><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-item">Save deadline</button></div></footer>
+      <footer class="modal-footer"><div><button type="button" id="delete-item" class="danger-link" hidden><svg class="icon" aria-hidden="true"><use href="#icon-trash"></use></svg> Remove</button></div><div><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-item">Save obligation</button></div></footer>
     </form>
   </dialog>
 
@@ -104,6 +110,30 @@
   <dialog id="calendar-dialog" class="modal small-modal"><div class="modal-card">
     <header class="modal-header"><div><span class="eyebrow">One event</span><h2>Add to a calendar</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
     <div class="modal-body"><p id="calendar-item-name" class="dialog-lead"></p><a id="google-link" class="calendar-provider" target="_blank" rel="noopener">Google Calendar <svg class="icon" aria-hidden="true"><use href="#icon-external"></use></svg></a><a id="outlook-link" class="calendar-provider" target="_blank" rel="noopener">Outlook Calendar <svg class="icon" aria-hidden="true"><use href="#icon-external"></use></svg></a><p class="microcopy">These links create one deadline event. Use “Export calendar” for the full reminder plan.</p></div>
+  </div></dialog>
+
+  <dialog id="asset-dialog" class="modal small-modal">
+    <form id="asset-form" class="modal-card">
+      <input type="hidden" name="id">
+      <header class="modal-header"><div><span class="eyebrow">Registry</span><h2 id="asset-dialog-title">Add possession</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+      <div class="modal-body"><label><span>Type</span><select name="type"><option value="property">Property</option><option value="land">Land</option><option value="vehicle">Vehicle</option><option value="business">Business / self-employment</option><option value="pet">Pet</option><option value="other">Other</option></select></label><label><span>Name</span><input name="label" maxlength="100" placeholder="e.g. Tashkent apartment"></label><div class="form-grid two"><label><span>Country</span><select name="country"></select></label><label><span>Owner</span><select name="ownerId"></select></label></div></div>
+      <footer class="modal-footer right"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-asset">Save possession</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="person-dialog" class="modal small-modal">
+    <form id="person-form" class="modal-card">
+      <input type="hidden" name="id">
+      <header class="modal-header"><div><span class="eyebrow">Household</span><h2 id="person-dialog-title">Add person</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+      <div class="modal-body"><label><span>Name or private label</span><input name="name" maxlength="80" placeholder="e.g. Child 1"></label><div class="form-grid two"><label><span>Citizenship</span><select name="citizenship"></select></label><label><span>Residence</span><select name="residence"></select></label></div></div>
+      <footer class="modal-footer right"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="button" class="primary-button" data-action="save-person">Save person</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="saas-dialog" class="modal small-modal"><div class="modal-card">
+    <header class="modal-header"><div><span class="eyebrow">External hosting</span><h2>OAuth-ready SaaS path</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close"><svg class="icon"><use href="#icon-close"></use></svg></button></header>
+    <div class="modal-body privacy-copy"><div class="privacy-hero"><svg class="icon"><use href="#icon-cloud"></use></svg></div><p>The external package is designed for a custom domain and portable Docker hosting:</p><ul><li>Next.js on the Node runtime</li><li>Auth.js with Google and configurable OIDC</li><li>PostgreSQL with account-level isolation</li><li>Separate consent for Google or Microsoft Calendar</li><li>Background reminder worker and audit trail</li></ul><p class="microcopy">OAuth credentials, production domain, database, and legal review are required before a live public launch.</p></div>
+    <footer class="modal-footer right"><button class="primary-button" data-action="close-dialog">Close</button></footer>
   </div></dialog>
 
   <input id="restore-input" type="file" accept="application/json,.json" hidden>

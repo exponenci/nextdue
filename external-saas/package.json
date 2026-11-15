@@ -1,0 +1,37 @@
+{
+  "name": "nextdue-external-saas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/core/reminders.test.ts src/catalog/catalog.test.ts",
+    "catalog:validate": "node --import tsx src/catalog/validate.ts",
+    "check": "npm run typecheck && npm test && npm run catalog:validate",
+    "db:migrate": "node --import tsx src/db/migrate.ts",
+    "worker": "node --import tsx src/worker/run.ts"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.1",
+    "drizzle-orm": "^0.45.4",
+    "next": "^16.0.1",
+    "next-auth": "5.0.0-beta.32",
+    "postgres": "^3.4.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.11"
+  }
+}

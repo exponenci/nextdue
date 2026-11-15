@@ -5,10 +5,11 @@ import {
   expandOccurrences,
   generateICS,
   getItemStatus,
-  getSuggestions,
+  parseReminderSequence,
   parseISODate,
   validateBackup,
 } from "../dist/logic.mjs";
+import { CATALOG, matchCatalog } from "../dist/catalog.mjs";
 
 const now = new Date("2026-11-15T12:00:00Z");
 
@@ -23,11 +24,33 @@ test("clamps month-end recurrence without timezone drift", () => {
   assert.equal(addMonthsClamped("2028-01-31", 1).toISOString().slice(0, 10), "2028-02-29");
 });
 
-test("suggestions remain focused and respond to profile", () => {
-  const suggestions = getSuggestions({ goal: "move", possessions: ["vehicle", "property", "pet"] });
-  assert.ok(suggestions.some((item) => item.id === "residence-permit"));
-  assert.ok(suggestions.some((item) => item.id === "vehicle-renewal"));
-  assert.ok(suggestions.length <= 7);
+test("matches people and possessions in different countries", () => {
+  const matches = matchCatalog({
+    people: [{ id: "me", citizenships: ["RU"], jurisdictions: [{ country: "RU", type: "residence" }] }],
+    assets: [{ id: "flat", type: "property", country: "UZ", ownerId: "me" }],
+  });
+  assert.ok(matches.some(({ entry }) => entry.id === "ru_internal_passport_age_replacement"));
+  assert.ok(matches.some(({ entry, assetId }) => entry.id === "uz_property_land_tax_installments" && assetId === "flat"));
+  assert.equal(CATALOG.length, 12);
+});
+
+test("ships complete localized catalog records with stable unique ids", () => {
+  assert.equal(new Set(CATALOG.map((entry) => entry.id)).size, CATALOG.length);
+  for (const entry of CATALOG) {
+    for (const locale of ["en", "ru", "uz-Latn"]) {
+      assert.ok(entry.title[locale], `${entry.id} is missing ${locale} title`);
+      assert.ok(entry.summary[locale], `${entry.id} is missing ${locale} summary`);
+      assert.ok(entry.audience[locale], `${entry.id} is missing ${locale} audience`);
+    }
+    assert.match(entry.source.url, /^https:\/\//);
+  }
+});
+
+test("parses user reminder sequences separated by slash", () => {
+  assert.deepEqual(parseReminderSequence("180 / 90/30/7/1/0"), [180, 90, 30, 7, 1, 0]);
+  assert.throws(() => parseReminderSequence("90//30"), /empty values/);
+  assert.throws(() => parseReminderSequence("30/30/7"), /duplicate/);
+  assert.throws(() => parseReminderSequence("30/-1"), /whole number/);
 });
 
 test("expands monthly recurrence for a bounded horizon", () => {
@@ -53,18 +76,20 @@ test("exports portable all-day ICS with alarms and stable identifiers", () => {
     title: "My passport",
     category: "identity",
     status: "active",
-    reminderPlan: "early",
+    reminderInput: "200/45/0",
+    reminderOffsets: [200, 45, 0],
     schedule: { kind: "expiry", date: "2027-06-01" },
   };
   const ics = generateICS([item], { privacySafeTitles: true, preparationMilestones: true, horizonMonths: 24 }, now);
   assert.match(ics, /UID:passport-abc-2027-06-01@nextdue\.local/);
   assert.match(ics, /SUMMARY:Renew identity document/);
-  assert.match(ics, /TRIGGER:-P180D/);
+  assert.match(ics, /TRIGGER:-P200D/);
+  assert.match(ics, /TRIGGER:PT0M/);
   assert.match(ics, /DTSTART;VALUE=DATE:20270601/);
   assert.ok(ics.endsWith("\r\n"));
 });
 
 test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup({ version: 99 }), /not supported/);
-  assert.throws(() => validateBackup({ version: 1, profile: {}, settings: {}, items: new Array(1001).fill({}) }), /too many/);
+  assert.throws(() => validateBackup({ version: 2, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
 });

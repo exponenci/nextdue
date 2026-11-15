@@ -1,0 +1,123 @@
+{
+  "countryCode": "RU",
+  "version": "2026.11",
+  "reviewedAt": "2026-11-15",
+  "status": "reviewed",
+  "defaultLocale": "ru",
+  "supportedLocales": ["ru", "en", "uz-Latn"],
+  "disclaimer": "Maintained starter pack, not exhaustive legal or tax advice. Confirm applicability and exact dates with the relevant authority.",
+  "items": [
+    {
+      "id": "ru-internal-passport-age-replacement",
+      "category": "identity",
+      "subjectKind": "person",
+      "applicability": { "eq": ["person.citizenship", "RU"] },
+      "scheduleTemplate": { "kind": "age_milestones", "ages": [14, 20, 45], "graceDays": 90 },
+      "defaultReminderInput": "180/90/30/7/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Internal passport: issue or age replacement", "summary": "For Russian citizens: issue at 14; replace at 20 and 45. A limited grace period follows the triggering date.", "audience": "Russian citizen" },
+        "ru": { "title": "Внутренний паспорт: получение или замена по возрасту", "summary": "Для граждан РФ: получение в 14 лет, замена в 20 и 45 лет. После даты события действует ограниченный переходный срок.", "audience": "Гражданин РФ" },
+        "uz-Latn": { "title": "Ichki pasport: olish yoki yosh bo‘yicha almashtirish", "summary": "Rossiya fuqarolari uchun: 14 yoshda olish, 20 va 45 yoshda almashtirish.", "audience": "Rossiya fuqarosi" }
+      },
+      "sources": [{ "authority": "Government of Russia", "title": "Government Regulation No. 2267", "url": "https://www.consultant.ru/document/cons_doc_LAW_466454/6125ca6a5baabbd3bbff7302f2c6e114b94061fa/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-international-passport-expiry",
+      "category": "identity",
+      "subjectKind": "person",
+      "applicability": { "eq": ["person.citizenship", "RU"] },
+      "scheduleTemplate": { "kind": "expiry_manual" },
+      "defaultReminderInput": "365/180/120/90/30/7/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "International passport expiry", "summary": "Traditional passports are normally valid for 5 years and biometric passports for 10 years. Track the printed date.", "audience": "Russian citizen or traveler" },
+        "ru": { "title": "Срок действия загранпаспорта", "summary": "Паспорт старого образца обычно действует 5 лет, биометрический — 10 лет. Отслеживайте дату в документе.", "audience": "Гражданин РФ или путешественник" },
+        "uz-Latn": { "title": "Xorijga chiqish pasporti muddati", "summary": "Oddiy pasport odatda 5 yil, biometrik pasport 10 yil amal qiladi.", "audience": "Rossiya fuqarosi yoki sayohatchi" }
+      },
+      "sources": [{ "authority": "Russian Federation", "title": "Federal Law 114-FZ, Article 10", "url": "https://www.consultant.ru/document/cons_doc_LAW_11376/3c9f5011b93965025dfc3c97e23f34b9dc019400/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-driving-licence-expiry",
+      "category": "transport",
+      "subjectKind": "person",
+      "applicability": { "eq": ["person.drivingLicenceCountry", "RU"] },
+      "scheduleTemplate": { "kind": "expiry_manual" },
+      "defaultReminderInput": "180/90/30/7/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Driving licence expiry", "summary": "Normally valid for 10 years. Keep the printed date and any extension status separate.", "audience": "Holder of a Russian driving licence" },
+        "ru": { "title": "Срок действия водительского удостоверения", "summary": "Обычно действует 10 лет. Храните напечатанную дату и статус возможного продления отдельно.", "audience": "Владелец российского водительского удостоверения" },
+        "uz-Latn": { "title": "Haydovchilik guvohnomasi muddati", "summary": "Odatda 10 yil amal qiladi. Hujjatdagi sana va uzaytirish holatini alohida saqlang.", "audience": "Rossiya haydovchilik guvohnomasi egasi" }
+      },
+      "sources": [{ "authority": "Government of Russia", "title": "Russian driving licence regulation", "url": "https://www.consultant.ru/document/cons_doc_LAW_170282/ea49bd9cde0631b9c9e5eb0c19789132534e85ae/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-individual-property-tax-notice",
+      "category": "property",
+      "subjectKind": "asset",
+      "applicability": { "all": [{ "eq": ["asset.country", "RU"] }, { "in": ["asset.type", ["property", "land", "vehicle"]] }] },
+      "scheduleTemplate": { "kind": "annual", "month": 12, "day": 1, "confirmAgainstNotice": true },
+      "defaultReminderInput": "60/30/14/7/1/0",
+      "confidence": "high",
+      "risk": "tax",
+      "translations": {
+        "en": { "title": "Individual property tax notice", "summary": "For taxable property, land, or vehicles, payment is generally due by 1 December following the tax period. Confirm against the official notice.", "audience": "Owner of taxable property, land, or vehicle" },
+        "ru": { "title": "Налоговое уведомление по имуществу физлица", "summary": "Для облагаемой недвижимости, земли или транспорта общий срок уплаты — до 1 декабря следующего года. Подтвердите по налоговому уведомлению.", "audience": "Владелец облагаемого имущества, земли или транспорта" },
+        "uz-Latn": { "title": "Jismoniy shaxs mulk solig‘i xabarnomasi", "summary": "Soliqqa tortiladigan mulk, yer yoki transport uchun rasmiy xabarnomani tekshiring.", "audience": "Soliqqa tortiladigan mulk egasi" }
+      },
+      "sources": [{ "authority": "Federal Tax Service of Russia", "title": "Tax notice", "url": "https://www.nalog.gov.ru/rn77/promo/nu/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-npd-monthly-tax",
+      "category": "tax",
+      "subjectKind": "asset",
+      "applicability": { "all": [{ "eq": ["asset.country", "RU"] }, { "eq": ["asset.type", "business"] }, { "eq": ["asset.taxRegime", "NPD"] }] },
+      "scheduleTemplate": { "kind": "monthly", "day": 28, "holidayShift": true },
+      "defaultReminderInput": "7/3/1/0",
+      "confidence": "high",
+      "risk": "tax",
+      "translations": {
+        "en": { "title": "Self-employed (NPD) monthly tax", "summary": "For registered NPD taxpayers, payment is generally due by the 28th of the following month, with holiday shifts.", "audience": "Registered NPD/self-employed taxpayer" },
+        "ru": { "title": "Ежемесячный налог НПД", "summary": "Для зарегистрированных плательщиков НПД уплата обычно до 28-го числа следующего месяца с переносами на праздники.", "audience": "Зарегистрированный плательщик НПД" },
+        "uz-Latn": { "title": "O‘zini o‘zi band qilganlar oylik solig‘i", "summary": "NPD to‘lovchilari uchun odatda keyingi oyning 28-kunigacha.", "audience": "NPD bo‘yicha ro‘yxatdan o‘tgan shaxs" }
+      },
+      "sources": [{ "authority": "Federal Tax Service of Russia", "title": "NPD payment", "url": "https://www.nalog.gov.ru/rn49/news/activities_fts/16639667/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-foreigner-migration-registration",
+      "category": "residence",
+      "subjectKind": "person",
+      "applicability": { "all": [{ "eq": ["person.currentCountry", "RU"] }, { "not": { "eq": ["person.citizenship", "RU"] } }] },
+      "scheduleTemplate": { "kind": "relative_manual", "days": 7, "workingDays": true },
+      "defaultReminderInput": "7/3/1/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Foreigner migration registration review", "summary": "The default notification window is 7 working days after arrival at a place of stay, but status and accommodation exceptions are common.", "audience": "Foreigner arriving or staying in Russia" },
+        "ru": { "title": "Проверка миграционного учёта иностранца", "summary": "Базовый срок уведомления — 7 рабочих дней после прибытия в место пребывания, но есть многочисленные исключения.", "audience": "Иностранец, прибывающий или находящийся в РФ" },
+        "uz-Latn": { "title": "Chet el fuqarosining migratsiya ro‘yxati", "summary": "Asosiy muddat yashash joyiga kelgandan keyin 7 ish kuni, lekin istisnolar ko‘p.", "audience": "Rossiyaga kelayotgan chet el fuqarosi" }
+      },
+      "sources": [{ "authority": "Russian Federation", "title": "Federal Law 109-FZ, Article 20", "url": "https://www.consultant.ru/document/cons_doc_LAW_61569/259e33be7736b57036467f128672f0ce6ca81f9d/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "ru-residence-permit-annual-confirmation",
+      "category": "residence",
+      "subjectKind": "person",
+      "applicability": { "all": [{ "eq": ["person.hasRussianResidencePermit", true] }, { "not": { "eq": ["person.citizenship", "RU"] } }] },
+      "scheduleTemplate": { "kind": "annual_anniversary", "windowDays": 60 },
+      "defaultReminderInput": "60/30/14/7/1/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Residence permit annual confirmation", "summary": "For a foreigner with a residence permit, usually within 2 months after each anniversary of receiving it. Additional conditions can apply.", "audience": "Foreigner with a Russian residence permit" },
+        "ru": { "title": "Ежегодное подтверждение проживания по ВНЖ", "summary": "Для иностранца с ВНЖ обычно в течение 2 месяцев после каждой годовщины получения. Возможны дополнительные условия.", "audience": "Иностранец с ВНЖ РФ" },
+        "uz-Latn": { "title": "Yashash ruxsatini yillik tasdiqlash", "summary": "Yashash ruxsati bor chet el fuqarosi uchun odatda har bir yillik sanadan keyin 2 oy ichida.", "audience": "Rossiyada yashash ruxsati bor chet el fuqarosi" }
+      },
+      "sources": [{ "authority": "Russian Federation", "title": "Federal Law 115-FZ, Article 8", "url": "https://www.consultant.ru/document/cons_doc_LAW_37868/cd5e24d0cd9cb837fa7a84e8f45ab9df1a3dbbbb/", "reviewedAt": "2026-11-15" }]
+    }
+  ]
+}

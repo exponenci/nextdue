@@ -1,0 +1,91 @@
+{
+  "countryCode": "UZ",
+  "version": "2026.11",
+  "reviewedAt": "2026-11-15",
+  "status": "reviewed",
+  "defaultLocale": "uz-Latn",
+  "supportedLocales": ["uz-Latn", "ru", "en"],
+  "disclaimer": "Maintained starter pack, not exhaustive legal or tax advice. Confirm applicability and exact dates with the relevant authority.",
+  "items": [
+    {
+      "id": "uz-id-card-expiry",
+      "category": "identity",
+      "subjectKind": "person",
+      "applicability": { "any": [{ "eq": ["person.citizenship", "UZ"] }, { "eq": ["person.hasUzbekIdCard", true] }] },
+      "scheduleTemplate": { "kind": "expiry_manual" },
+      "defaultReminderInput": "180/90/30/7/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "ID card expiry", "summary": "Validity depends on age. Track the exact date printed on the document.", "audience": "Uzbekistan citizen or eligible resident" },
+        "ru": { "title": "Срок действия ID-карты", "summary": "Срок зависит от возраста. Отслеживайте точную дату в документе.", "audience": "Гражданин Узбекистана или соответствующий резидент" },
+        "uz-Latn": { "title": "ID-karta amal qilish muddati", "summary": "Amal qilish muddati yoshga bog‘liq. Hujjatdagi aniq sanani kuzating.", "audience": "O‘zbekiston fuqarosi yoki tegishli rezident" }
+      },
+      "sources": [{ "authority": "Uzbekistan MyGov", "title": "Passport and ID card", "url": "https://my.gov.uz/en/life-situations/38d089e4-697c-494a-a5ac-d2ca1eeea49a", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "uz-driving-licence-expiry",
+      "category": "transport",
+      "subjectKind": "person",
+      "applicability": { "eq": ["person.drivingLicenceCountry", "UZ"] },
+      "scheduleTemplate": { "kind": "expiry_manual" },
+      "defaultReminderInput": "180/90/30/7/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Driving licence expiry", "summary": "A national driving licence is issued for 10 years. Track the printed date.", "audience": "Holder of an Uzbekistan driving licence" },
+        "ru": { "title": "Срок действия водительского удостоверения", "summary": "Национальное водительское удостоверение выдаётся на 10 лет. Отслеживайте дату в документе.", "audience": "Владелец водительского удостоверения Узбекистана" },
+        "uz-Latn": { "title": "Haydovchilik guvohnomasi muddati", "summary": "Milliy haydovchilik guvohnomasi 10 yilga beriladi. Hujjatdagi sanani kuzating.", "audience": "O‘zbekiston haydovchilik guvohnomasi egasi" }
+      },
+      "sources": [{ "authority": "Cabinet of Ministers of Uzbekistan", "title": "Cabinet Resolution No. 152", "url": "https://www.lex.uz/uz/acts/-6433695?ONDATE=14.04.2023+00", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "uz-foreigner-temporary-registration",
+      "category": "residence",
+      "subjectKind": "person",
+      "applicability": { "all": [{ "eq": ["person.currentCountry", "UZ"] }, { "not": { "eq": ["person.citizenship", "UZ"] } }] },
+      "scheduleTemplate": { "kind": "relative_manual", "days": 3, "workingDays": true },
+      "defaultReminderInput": "3/1/0",
+      "confidence": "high",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Foreigner temporary registration review", "summary": "The default window is 3 working days after entry or an address change. Hotels often register guests and exceptions apply.", "audience": "Foreign visitor in Uzbekistan" },
+        "ru": { "title": "Проверка временной регистрации иностранца", "summary": "Базовый срок — 3 рабочих дня после въезда или смены адреса. В гостиницах регистрацию часто оформляет объект размещения; есть исключения.", "audience": "Иностранный посетитель в Узбекистане" },
+        "uz-Latn": { "title": "Chet el fuqarosini vaqtincha ro‘yxatdan o‘tkazish", "summary": "Asosiy muddat kirish yoki manzil o‘zgarishidan keyin 3 ish kuni. Mehmonxona ro‘yxatdan o‘tkazishi mumkin; istisnolar mavjud.", "audience": "O‘zbekistondagi chet ellik mehmon" }
+      },
+      "sources": [{ "authority": "Uzbekistan MyGov", "title": "Information for foreigners", "url": "https://my.gov.uz/en/for-foreigners", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "uz-passport-readiness-entry",
+      "category": "identity",
+      "subjectKind": "person",
+      "applicability": { "all": [{ "eq": ["person.destinationCountry", "UZ"] }, { "not": { "eq": ["person.citizenship", "UZ"] } }] },
+      "scheduleTemplate": { "kind": "travel_readiness", "validityDays": 183 },
+      "defaultReminderInput": "180/120/90/30/7/0",
+      "confidence": "medium",
+      "risk": "legal",
+      "translations": {
+        "en": { "title": "Passport validity before Uzbekistan entry", "summary": "Official guidance states at least 6 months of passport validity at entry. Confirm for your citizenship and trip.", "audience": "Foreigner entering Uzbekistan" },
+        "ru": { "title": "Проверка срока паспорта перед въездом в Узбекистан", "summary": "Официальная памятка указывает минимум 6 месяцев действия паспорта при въезде. Подтвердите для своего гражданства и маршрута.", "audience": "Иностранец, въезжающий в Узбекистан" },
+        "uz-Latn": { "title": "O‘zbekistonga kirishdan oldin pasport muddati", "summary": "Rasmiy ma’lumotda kirishda pasport kamida 6 oy amal qilishi ko‘rsatilgan. Fuqarolik va safar uchun tekshiring.", "audience": "O‘zbekistonga kirayotgan chet el fuqarosi" }
+      },
+      "sources": [{ "authority": "Uzbekistan MyGov", "title": "Information for foreigners", "url": "https://my.gov.uz/uz/for-foreigners/", "reviewedAt": "2026-11-15" }]
+    },
+    {
+      "id": "uz-property-land-tax-installments",
+      "category": "property",
+      "subjectKind": "asset",
+      "applicability": { "all": [{ "eq": ["asset.country", "UZ"] }, { "in": ["asset.type", ["property", "land"]] }] },
+      "scheduleTemplate": { "kind": "annual_multiple", "dates": [{ "month": 4, "day": 15 }, { "month": 10, "day": 15 }], "confirmAgainstNotice": true },
+      "defaultReminderInput": "60/30/14/7/1/0",
+      "confidence": "high",
+      "risk": "tax",
+      "translations": {
+        "en": { "title": "Property and land tax instalments", "summary": "For applicable individual owners, two equal instalments are due by 15 April and 15 October. Confirm against the official notice.", "audience": "Applicable owner of real estate or land" },
+        "ru": { "title": "Платежи по налогу на имущество и землю", "summary": "Для применимых владельцев-физлиц две равные части уплачиваются до 15 апреля и 15 октября. Подтвердите по официальному уведомлению.", "audience": "Применимый владелец недвижимости или земли" },
+        "uz-Latn": { "title": "Mol-mulk va yer solig‘i to‘lovlari", "summary": "Tegishli jismoniy shaxslar uchun 15-aprel va 15-oktabrgacha ikki teng qism. Rasmiy xabarnomani tekshiring.", "audience": "Tegishli ko‘chmas mulk yoki yer egasi" }
+      },
+      "sources": [{ "authority": "Tax Committee of Uzbekistan", "title": "Property and land tax payments", "url": "https://gov.uz/ru/soliq/news/view/215512", "reviewedAt": "2026-11-15" }]
+    }
+  ]
+}

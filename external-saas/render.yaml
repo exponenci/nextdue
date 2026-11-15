@@ -1,0 +1,47 @@
+databases:
+  - name: nextdue-postgres
+    plan: basic-256mb
+    databaseName: nextdue
+    user: nextdue
+
+services:
+  - type: web
+    name: nextdue-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    preDeployCommand: npm run db:migrate
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nextdue-postgres
+          property: connectionString
+      - key: APP_URL
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: DEV_AUTH_BYPASS
+        value: "false"
+
+  - type: cron
+    name: nextdue-reminders
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    schedule: "*/5 * * * *"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nextdue-postgres
+          property: connectionString
+      - key: APP_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

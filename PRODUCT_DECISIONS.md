@@ -1,58 +1,56 @@
 # Product decisions
 
-## Audience and wedge
+## Initial wedge
 
-The first audience is internationally mobile people: movers, expats, students, remote workers, frequent travelers, and families managing documents across borders. Custom household deadlines keep the product useful to ordinary citizens without making the positioning vague.
+Start with Russian-speaking cross-border households, especially Russia ↔ Uzbekistan: movers, recent relocators, families managing dependant documents, and owners of property or vehicles in another country.
 
-## Job to be done
+The durable model is broader:
 
-> Based on my situation, help me identify dates that may matter, let me confirm the exact facts, and remind me early enough to act.
+```text
+household → people → jurisdictions → possessions → catalog obligations → confirmed dates → reminders
+```
 
-The product separates:
+Citizenship, residence, an asset's registration/location, and an obligation's jurisdiction are separate facts. A flat in Uzbekistan must not inherit the country of its owner who lives in Russia.
 
-1. A suggestion generated from broad profile context.
-2. A date or obligation the user confirms.
-3. A derived action window, calendar event, and reminder schedule.
+## Product promise
 
-This distinction is essential for trust. The system proposes; the user confirms.
+> Based on my situation, show a maintained starter pack, explain why each item may apply, let me confirm the exact facts, and remind me early enough to act.
+
+The runtime is deterministic. Catalog entries are versioned editorial data with translations, official sources, review dates, scope, confidence, and applicability warnings. AI may assist internal research but cannot publish or select legal-adjacent requirements automatically.
 
 ## Information architecture
 
-- **Today:** act now, add missing dates, coming up, covered.
-- **Plan:** chronological list grouped by month; list-first rather than a dense calendar grid.
-- **Library:** user records grouped by plain-language category.
-- **Settings:** profile scope, calendar behavior, backup, restore, and privacy boundary.
+- **Today:** act now, confirm missing dates, plan upcoming work, and see what is covered.
+- **Plan:** chronological obligations grouped by month.
+- **People & assets:** household ownership and country graph.
+- **Country packs:** reviewed Russia/Uzbekistan catalog with filters and sources.
+- **Settings:** language, calendar export, portability, and external SaaS path.
 
 ## Reminder model
 
-- Early documents: 180, 120, 90, and 30 days before.
-- Standard obligations: 60, 30, and 7 days before.
-- Compact deadlines: 30, 7, and 1 day before.
-- Monthly routines: 7 days, 1 day, and the due date.
+Users enter days before a deadline with `/`, for example `365/180/90/30/7/1/0`. Numbers are whole days; `0` is the due date. Input rejects empty parts, duplicates, negatives, non-integers, and values above 3650, then stores structured offsets in descending order.
 
-The export includes both deadline events and an optional visible preparation milestone. The formal expiry date and the date to start acting are not treated as the same thing.
+Catalog defaults remain editable per obligation. A preparation reminder never changes the formal expiry or due date.
 
-## MVP anti-scope
+## Language model
+
+The first locales are English (`en`), Russian (`ru`), and Uzbek Latin (`uz-Latn`). Catalog translations are reviewed editorial content. User-created titles are preserved as entered. Switching language changes catalog-derived titles and interface copy without changing the underlying obligation.
+
+## Authentication and calendars
+
+The production service supports Google sign-in and optional generic OIDC. Sign-in requests only `openid email profile`. Google or Microsoft Calendar access is a later, separate consent flow. Phase one supports downloadable and private subscribed ICS feeds.
+
+## Non-goals for the first paid release
 
 - Tax calculation or filing.
-- Visa eligibility or definitive legal guidance.
+- Visa eligibility or definitive legal advice.
 - Automated form submission or payments.
-- Document OCR, scan storage, or identity numbers.
-- Universal regulation monitoring.
-- Direct calendar OAuth or a claim of live synchronization.
+- Passport numbers, scans, tax identifiers, or full addresses by default.
+- A claim of complete country coverage.
 - A generic AI chat interface.
-- Household roles and permissions.
-
-## Staged path
-
-1. **Private prototype:** local profile, suggestions, custom dates, recurrence, ICS export.
-2. **Pilot:** evidence-backed rule packs for a small number of jurisdictions and scenarios.
-3. **Hosted product:** accounts, encrypted sync, delivery status, dependants, export and deletion.
-4. **Integrations:** revocable calendar subscriptions and least-privilege Google/Microsoft OAuth.
-5. **Household product:** collaboration, ownership, handoffs, and rule-update notifications.
 
 ## Working brand
 
 **NextDue** — *Life admin, before it becomes urgent.*
 
-The name is a working product name; trademark and domain availability have not been validated.
+The name remains provisional until trademark and domain checks are completed.

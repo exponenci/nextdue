@@ -1,50 +1,51 @@
 # NextDue
 
-NextDue is a private, local-first planner for document expiries, one-off deadlines, and recurring life obligations. It turns user-confirmed dates into a calm action queue and a portable calendar file.
+NextDue is a source-backed life-admin calendar for households whose people, documents, possessions, and obligations can belong to different countries.
 
-## Product promise
+> Know what may apply, who it belongs to, where it applies, and when to act.
 
-> Tell us what is changing in your life, confirm the dates that apply, and know what to do before anything becomes urgent.
+It does not ask an AI to invent a compliance plan. It matches a household graph against a maintained country catalog, explains each suggestion, and waits for the user to confirm applicability and dates.
 
-The first release is intentionally an organizer, not a legal, immigration, or tax engine. Suggestions are common planning prompts; official authorities remain the source of truth.
+## Working prototype
 
-## What works
+- Four-step onboarding: language and goal, people/jurisdictions, possessions by country, and catalog review.
+- Separate ownership and country for each person and possession.
+- Twelve source-backed starter entries for Russia and Uzbekistan, with official-source links, review date, scope, and applicability warnings.
+- English, Russian, and Uzbek Latin interface and catalog content.
+- Today, Plan, People & assets, Country packs, and Settings views.
+- Expiry, one-off, monthly, and annual schedules.
+- User-defined slash reminder sequences such as `180/90/30/7/1/0`.
+- Bounded `.ics` export and one-event Google/Outlook links.
+- Browser-local IndexedDB storage, `localStorage` fallback, and JSON backup/restore.
+- No document numbers, scans, addresses, analytics, ad trackers, or third-party scripts.
 
-- Three-step onboarding for organizing, travel, or relocation.
-- Suggestions based on residence, destination, household context, and broad possessions.
-- Explicit user confirmation; dates can stay unknown until the user verifies them.
-- One-off due dates, expiries, monthly recurrence, and yearly recurrence.
-- Today, Plan, Library, and Settings views.
-- Editable reminder presets and visible preparation milestones.
-- Deterministic `.ics` export over a bounded 24-month horizon.
-- One-event Google Calendar and Outlook links.
-- Browser-local IndexedDB storage with a `localStorage` fallback.
-- JSON backup/restore and full local reset.
-- Privacy-safe calendar titles enabled by default.
-- No backend, account, analytics, external fonts, or third-party scripts.
-
-## Run locally
+## Run and test
 
 ```bash
-npm run check
+npm test
 npm run serve
 ```
 
 Open `http://127.0.0.1:4173`.
 
-## Files
+## Repository map
 
 - `dist/index.html` — accessible application shell and dialogs.
-- `dist/styles.css` — responsive product design.
-- `dist/app.mjs` — IndexedDB persistence and interaction layer.
-- `dist/logic.mjs` — suggestions, date math, recurrence, validation, and ICS generation.
-- `tests/logic.test.mjs` — dependency-free logic and export tests.
-- `.openai/hosting.json` — private ChatGPT Site deployment configuration.
+- `dist/styles.css` — responsive indigo/warm-neutral design.
+- `dist/app.mjs` — onboarding, persistence, localization, and interactions.
+- `dist/catalog.mjs` — versioned Russia/Uzbekistan catalog and deterministic matching.
+- `dist/i18n.mjs` — English, Russian, and Uzbek Latin messages.
+- `dist/logic.mjs` — date math, recurrence, reminder parsing, validation, and ICS generation.
+- `tests/logic.test.mjs` — dependency-free domain tests.
+- `external-saas/` — portable external-hosting implementation and deployment contracts.
+- `BUSINESS_MODEL.md`, `GO_TO_MARKET.md`, `PROMOTION_PLAYBOOK.md` — pricing and acquisition plan.
 
-## Privacy boundary
+## Trust boundary
 
-The MVP does not request or store passport numbers, tax IDs, addresses, scans, or financial values. Browser storage is not presented as encrypted. Users are warned about shared devices and can download a backup before clearing browser data.
+Country packs are maintained starter packs, not a claim of exhaustive legal, tax, or immigration advice. Users confirm what applies and enter exact dates from their own documents or official notices. High-applicability-risk items are marked explicitly.
+
+The static prototype stores data only in the browser. The external SaaS path separates sign-in from calendar consent, uses Google OAuth or generic OIDC, and scopes household data by account.
 
 ## Release status
 
-This is a working product prototype suitable for private user testing. It is not yet a hosted multi-user service and does not provide live calendar synchronization or jurisdiction-complete guidance.
+The static product is suitable for private beta and usability testing. Public paid launch still requires authoritative catalog review, production OAuth/domain credentials, privacy and data-residency review, email delivery setup, and operational ownership for catalog corrections.

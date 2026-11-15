@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const CATEGORY_META = {
   identity: { label: "Identity & travel", icon: "passport", safeTitle: "Renew identity document" },
@@ -17,6 +17,25 @@ export const REMINDER_PLANS = {
   compact: { label: "Closer to due", offsets: [30, 7, 1], summary: "1 month, 1 week, 1 day" },
   monthly: { label: "Monthly routine", offsets: [7, 1, 0], summary: "1 week, 1 day, due date" },
 };
+
+export function parseReminderSequence(input) {
+  const raw = String(input || "").trim();
+  if (!raw) throw new Error("Enter at least one reminder day.");
+  const parts = raw.split("/").map((part) => part.trim());
+  if (parts.some((part) => part === "")) throw new Error("Use / between reminder days without empty values.");
+  const offsets = parts.map((part) => {
+    if (!/^\d+$/.test(part)) throw new Error(`“${part}” is not a whole number of days.`);
+    const value = Number(part);
+    if (!Number.isSafeInteger(value) || value < 0 || value > 3650) throw new Error("Reminder days must be between 0 and 3650.");
+    return value;
+  });
+  if (new Set(offsets).size !== offsets.length) throw new Error("Remove duplicate reminder days.");
+  return offsets.sort((a, b) => b - a);
+}
+
+export function formatReminderSequence(offsets) {
+  return [...(offsets || [])].sort((a, b) => b - a).join("/");
+}
 
 export const TEMPLATES = [
   {
@@ -133,6 +152,39 @@ export function makeItemFromTemplate(template, profile, now = new Date()) {
   };
 }
 
+export function makeItemFromCatalog(match, options = {}, now = new Date()) {
+  const { entry, subjectId = null, assetId = null } = match;
+  const timestamp = now.toISOString();
+  const reminderInput = options.reminderInput || entry.defaultReminders || "60/30/7/1/0";
+  return {
+    id: createId(entry.id),
+    catalogId: entry.id,
+    catalogVersion: options.catalogVersion || "2026.11",
+    title: options.title || entry.title?.en || entry.id,
+    category: entry.category,
+    country: entry.country,
+    jurisdiction: entry.country,
+    subjectId,
+    assetId,
+    person: options.person || "Me",
+    provenance: "catalog",
+    confirmation: "confirmed",
+    reason: options.reason || entry.summary?.en || "Matched from a reviewed country pack.",
+    schedule: {
+      kind: options.kind || (entry.timing?.kind === "monthly" ? "recurring" : entry.timing?.kind?.startsWith("annual") ? "recurring" : "expiry"),
+      date: options.date || "",
+      frequency: entry.timing?.kind === "monthly" ? "monthly" : "yearly",
+      interval: 1,
+    },
+    reminderInput,
+    reminderOffsets: parseReminderSequence(reminderInput),
+    status: "active",
+    notes: "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 export function createId(prefix = "item") {
   const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${prefix}-${random}`;
@@ -218,7 +270,7 @@ export function getNextAction(item, now = new Date()) {
   if (!parseISODate(item.schedule?.date)) return "Add the date to schedule reminders";
   const dueDate = getNextOccurrence(item, now);
   const days = daysBetween(now, dueDate);
-  const offsets = REMINDER_PLANS[item.reminderPlan]?.offsets || REMINDER_PLANS.standard.offsets;
+  const offsets = item.reminderOffsets?.length ? item.reminderOffsets : (REMINDER_PLANS[item.reminderPlan]?.offsets || REMINDER_PLANS.standard.offsets);
   const firstOffset = Math.max(...offsets);
   if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} past due`;
   if (days === 0) return "Due today";
@@ -254,11 +306,13 @@ export function validateBackup(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Backup must be a JSON object.");
   if (value.version !== SCHEMA_VERSION) throw new Error("This backup version is not supported.");
   if (!value.profile || !Array.isArray(value.items) || !value.settings) throw new Error("Backup is missing required data.");
+  if (!Array.isArray(value.people) || !Array.isArray(value.assets)) throw new Error("Backup is missing people or possessions.");
   if (value.items.length > 1000) throw new Error("Backup contains too many items.");
   for (const item of value.items) {
     if (!item || typeof item.title !== "string" || item.title.length > 160) throw new Error("Backup contains an invalid item.");
     if (!CATEGORY_META[item.category]) item.category = "custom";
     if (item.schedule?.date && !parseISODate(item.schedule.date)) throw new Error(`Invalid date for “${item.title.slice(0, 40)}”.`);
+    if (item.reminderInput) item.reminderOffsets = parseReminderSequence(item.reminderInput);
   }
   return value;
 }
@@ -325,7 +379,7 @@ export function generateICS(items, settings = {}, now = new Date()) {
 
   items.filter((item) => item.status === "active").forEach((item) => {
     const occurrences = expandOccurrences(item, { now, horizonMonths });
-    const plan = REMINDER_PLANS[item.reminderPlan] || REMINDER_PLANS.standard;
+    const plan = { offsets: item.reminderOffsets?.length ? item.reminderOffsets : (REMINDER_PLANS[item.reminderPlan]?.offsets || REMINDER_PLANS.standard.offsets) };
     const title = privacySafe ? (CATEGORY_META[item.category]?.safeTitle || CATEGORY_META.custom.safeTitle) : item.title;
     const description = "Created by NextDue. Verify requirements with the relevant authority. This calendar is a snapshot, not live sync.";
 

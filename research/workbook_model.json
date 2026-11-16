@@ -2,14 +2,18 @@
   "schema_version": "1.0",
   "model_name": "NextDue normalized rule workbook and server model",
   "principles": [
+    "Account is the tenant and authorization boundary; it does not replace the person or asset that a record is about.",
     "Citizenship, country presence, purpose, legal route and issued documents are separate records.",
     "A broad purpose never implies an exact route code or document.",
     "Assets and asset documents are exact-object records scoped to their own jurisdiction.",
+    "An asset belongs to one account and links to one or more people through explicit owner, keeper or operator roles.",
+    "An obligation belongs to one account and has one explicit primary subject: account, person or asset; responsibility is stored separately.",
     "Rules describe conditional candidates; obligations are instantiated only after facts are matched or confirmed.",
     "Unknown deadlines remain null and user-confirmed rather than receiving an invented date."
   ],
   "enums": {
     "purposes": [
+      {"code":"any","label":"Not purpose-specific"},
       {"code":"visit","label":"Visit or tourism"},
       {"code":"work","label":"Work"},
       {"code":"study","label":"Study or training"},
@@ -86,25 +90,32 @@
       {"code":"publishable","label":"Verified and approved for user-facing automatic matching"},
       {"code":"retired","label":"No longer active; retained for history"}
     ],
+    "rule_specificities": [
+      {"code":"exact_national_rule","label":"Exact national rule, document or duty supported by the cited source"},
+      {"code":"route_mapping","label":"Named legal route or status family supported by the cited source; detailed duties may remain unresolved"},
+      {"code":"research_prompt","label":"Source-backed research prompt that must not be counted as a verified legal obligation"}
+    ],
     "confidence_levels": [
       {"code":"high","label":"Direct official support for the broad mapping"},
       {"code":"medium","label":"Official support exists but exact scope or route details remain incomplete"},
       {"code":"low","label":"Product-level research mapping only; do not assert applicability"}
     ],
-    "citizenship_scope_types": ["all","non_citizen","specific_citizenships","excluded_citizenships","eligibility_specific"],
+    "citizenship_scope_types": ["all","destination_citizen","non_destination_citizen","specific_citizenships","excluded_citizenships","eligibility_specific"],
     "person_roles": ["applicant","principal","dependant","sponsor","owner","keeper_operator"],
     "country_context_types": ["usual_residence","current_residence","physical_stay","destination","planned_move","tax_residence","previous_residence"],
-    "asset_types": ["real_property","land","vehicle","watercraft","business","other"],
+    "asset_types": ["any","real_property","land","vehicle","watercraft","business","other"],
+    "asset_person_roles": ["owner","co_owner","registered_owner","keeper","operator","taxpayer","responsible_person"],
+    "obligation_subject_types": ["account","person","asset"],
     "confirmation_states": ["unconfirmed","user_confirmed","authority_confirmed","superseded"]
   },
   "rule_schema": {
     "primary_key": "rule_id",
     "fields": [
-      "rule_id","destination_country","authority_level","citizenship_scope_type","citizenship_values","residence_or_entry_scope","purpose","route_code","person_role","family_condition","employer_condition","institution_condition","asset_type","asset_condition","condition_expression","requirement_type","requirement_name","actor","trigger_event","deadline_type","deadline_value","deadline_unit","recurrence","required_evidence","exceptions","source_ids","effective_from","effective_to","last_verified","review_status","confidence","notes"
+      "rule_id","destination_country","authority_level","citizenship_scope_type","citizenship_values","residence_or_entry_scope","purpose","route_code","person_role","family_condition","employer_condition","institution_condition","asset_type","asset_condition","condition_expression","requirement_type","requirement_name","actor","trigger_event","deadline_type","deadline_value","deadline_unit","recurrence","required_evidence","exceptions","source_ids","effective_from","effective_to","last_verified","review_status","confidence","notes","rule_specificity"
     ],
-    "array_fields": ["citizenship_values","required_evidence","source_ids"],
+    "array_fields": ["citizenship_values","required_evidence","exceptions","source_ids"],
     "nullable_fields": ["family_condition","employer_condition","institution_condition","asset_type","asset_condition","deadline_value","deadline_unit","recurrence","effective_from","effective_to"],
-    "matching_contract": "A rule is a candidate only when every non-null condition dimension matches. Partial or unresolved rules require explicit confirmation before becoming an obligation."
+    "matching_contract": "A rule is a candidate only when every non-null condition dimension matches. Only exact_national_rule rows may become automatic legal obligations after review; route_mapping and research_prompt rows require explicit confirmation and further rule-level research."
   },
   "source_schema": {
     "primary_key": "source_id",
@@ -113,6 +124,11 @@
   },
   "server_model": {
     "entities": [
+      {
+        "name":"Account",
+        "primary_key":"account_id",
+        "fields":["account_id:uuid","display_label:string?","default_locale:string?","default_timezone:string?","created_at:timestamp","updated_at:timestamp"]
+      },
       {
         "name":"Person",
         "primary_key":"person_id",
@@ -158,12 +174,14 @@
       {
         "name":"Rule",
         "primary_key":"rule_id",
-        "fields":["rule_id:string","destination_country:char(2)","authority_level:string","citizenship_scope_type:enum","citizenship_values:json","residence_or_entry_scope:string","purpose:enum","route_code:string","person_role:enum","family_condition:text?","employer_condition:text?","institution_condition:text?","asset_type:enum?","asset_condition:text?","condition_expression:text","requirement_type:enum","requirement_name:string","actor:enum","trigger_event:string","deadline_type:enum","deadline_value:decimal?","deadline_unit:string?","recurrence:string?","required_evidence:json","exceptions:text?","effective_from:date?","effective_to:date?","last_verified:date","review_status:enum","confidence:enum","notes:text?","created_at:timestamp","updated_at:timestamp"]
+        "fields":["rule_id:string","destination_country:char(2)","authority_level:string","citizenship_scope_type:enum","citizenship_values:json","residence_or_entry_scope:string","purpose:enum","route_code:string","person_role:enum","family_condition:text?","employer_condition:text?","institution_condition:text?","asset_type:enum?","asset_condition:text?","condition_expression:json","requirement_type:enum","requirement_name:string","actor:enum","trigger_event:string","deadline_type:enum","deadline_value:json?","deadline_unit:string?","recurrence:string?","required_evidence:json","exceptions:json","effective_from:date?","effective_to:date?","last_verified:date","review_status:enum","confidence:enum","notes:text?","rule_specificity:enum","created_at:timestamp","updated_at:timestamp"]
       },
       {
         "name":"Obligation",
         "primary_key":"obligation_id",
-        "fields":["obligation_id:uuid","account_id:uuid","rule_id:string?","person_id:uuid?","country_context_id:uuid?","legal_route_id:uuid?","asset_id:uuid?","asset_document_id:uuid?","title:string","actor:enum","trigger_event:string?","due_on:date?","recurrence:string?","deadline_source:string","status:string","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"]
+        "fields":["obligation_id:uuid","account_id:uuid","subject_type:enum","person_id:uuid?","asset_id:uuid?","responsible_person_id:uuid?","rule_id:string?","country_context_id:uuid?","legal_route_id:uuid?","asset_document_id:uuid?","title:string","actor:enum","trigger_event:string?","due_on:date?","recurrence:string?","deadline_source:string","status:string","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"],
+        "check_constraints":["(subject_type='account' AND person_id IS NULL AND asset_id IS NULL) OR (subject_type='person' AND person_id IS NOT NULL AND asset_id IS NULL) OR (subject_type='asset' AND asset_id IS NOT NULL AND person_id IS NULL)"],
+        "tenant_constraint":"All referenced Person, Asset, CountryContext and LegalRoute records must have the same account_id as the Obligation."
       },
       {
         "name":"Source",
@@ -172,10 +190,14 @@
       }
     ],
     "join_entities": [
-      {"name":"PersonAsset","fields":["person_id:uuid","asset_id:uuid","ownership_role:string","share:decimal?","starts_on:date?","ends_on:date?"],"primary_key":"person_id,asset_id,ownership_role,starts_on"},
+      {"name":"AssetPersonRole","fields":["asset_person_role_id:uuid","account_id:uuid","person_id:uuid","asset_id:uuid","role:enum","share:decimal?","starts_on:date?","ends_on:date?","created_at:timestamp","updated_at:timestamp"],"primary_key":"asset_person_role_id","unique_constraints":["person_id,asset_id,role,starts_on"],"tenant_constraint":"Person and Asset must belong to account_id."},
       {"name":"RuleSource","fields":["rule_id:string","source_id:string","support_scope:string?"],"primary_key":"rule_id,source_id"}
     ],
     "relationships": [
+      {"from":"Account","to":"Person","cardinality":"one_to_many","foreign_key":"Person.account_id"},
+      {"from":"Account","to":"Asset","cardinality":"one_to_many","foreign_key":"Asset.account_id"},
+      {"from":"Account","to":"AssetPersonRole","cardinality":"one_to_many","foreign_key":"AssetPersonRole.account_id"},
+      {"from":"Account","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.account_id"},
       {"from":"Person","to":"Citizenship","cardinality":"one_to_many","foreign_key":"Citizenship.person_id"},
       {"from":"Person","to":"CountryContext","cardinality":"one_to_many","foreign_key":"CountryContext.person_id"},
       {"from":"Person","to":"LegalRoute","cardinality":"one_to_many","foreign_key":"LegalRoute.person_id"},
@@ -183,11 +205,12 @@
       {"from":"LegalRoute","to":"IssuedDocument","cardinality":"one_to_many","foreign_key":"IssuedDocument.legal_route_id"},
       {"from":"Person","to":"IssuedDocument","cardinality":"one_to_many","foreign_key":"IssuedDocument.person_id"},
       {"from":"Person","to":"FamilyLink","cardinality":"many_to_many_self","join_keys":"FamilyLink.from_person_id,FamilyLink.to_person_id"},
-      {"from":"Person","to":"Asset","cardinality":"many_to_many","join_entity":"PersonAsset"},
+      {"from":"Person","to":"Asset","cardinality":"many_to_many","join_entity":"AssetPersonRole"},
       {"from":"Asset","to":"AssetDocument","cardinality":"one_to_many","foreign_key":"AssetDocument.asset_id"},
       {"from":"Rule","to":"Source","cardinality":"many_to_many","join_entity":"RuleSource"},
       {"from":"Rule","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.rule_id"},
       {"from":"Person","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.person_id"},
+      {"from":"Person","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.responsible_person_id","meaning":"Responsibility is separate from the obligation's primary subject."},
       {"from":"CountryContext","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.country_context_id"},
       {"from":"LegalRoute","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.legal_route_id"},
       {"from":"Asset","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.asset_id"},

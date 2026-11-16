@@ -11,12 +11,12 @@ country-specific purpose/route checks + source-backed rules
         ↓ user confirms applicability and date
 tracked obligation
         ↓ recurrence + reminder offsets
-Today / Plan / ICS export
+Plan / ICS export
 ```
 
 One versioned state object is stored in IndexedDB with a `localStorage` fallback. Catalog and localization data ship as static ES modules. JSON restore validates schema version, size, counts, categories, titles, dates, and reminder sequences before replacing state.
 
-Every possession has its own country and owner. Every obligation can reference a person and a possession independently.
+`account_id` is always the tenant and authorization boundary. Every possession has its own country and links to one or more people through explicit owner, co-owner, keeper, operator, taxpayer, or responsible-person roles. Every obligation has one primary subject (`account`, `person`, or `asset`) plus an optional responsible person; person and asset cannot both be the primary subject.
 
 ## Catalog
 
@@ -50,7 +50,9 @@ Recurring rules are expanded over a bounded 24-month window. All-day `VALUE=DATE
 - Dockerized Next.js App Router on Node;
 - Auth.js with Google and optional generic OIDC;
 - PostgreSQL tenant model and row-level isolation contracts;
-- account → people → citizenships/country contexts → legalization paths/status documents → assets/asset documents → obligations;
+- account → people → citizenships/country contexts → legalization paths/status documents;
+- account → assets → asset-person roles → asset documents;
+- account → obligations with an explicit account/person/asset subject and a separate responsible person;
 - background reminder worker and idempotent delivery keys;
 - English, Russian, and Uzbek locale routing;
 - downloadable/subscribed ICS first, direct calendar OAuth later;

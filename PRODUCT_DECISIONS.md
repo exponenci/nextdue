@@ -20,8 +20,7 @@ The runtime is deterministic. Catalog entries are versioned editorial data with 
 
 ## Information architecture
 
-- **Today:** act now, confirm missing dates, plan upcoming work, and see what is covered.
-- **Plan:** a checklist by action state, plus a dated timeline and compact country/person/exact-possession filters.
+- **Plan:** one urgency-aware checklist by action state, plus a dated timeline and compact country/person/exact-possession filters.
 - **People & assets:** citizenship, current residence, country plans, and one checklist per exact possession.
 - **Country rules:** every published rule remains browsable, with matched countries and rules first.
 - **Settings:** language, calendar export, portability, and external SaaS path.

@@ -11,9 +11,18 @@ import {
   validateBackup,
 } from "../dist/logic.mjs";
 import { CATALOG, matchCatalog } from "../dist/catalog.mjs";
+import { REGISTRY_COUNTS, REGISTRY_RULES, REGISTRY_SOURCES } from "../dist/registry.mjs";
+import {
+  catalogGraph,
+  emptyDomainState,
+  migrateDomainState,
+  normalizeCatalogObligation,
+  validateSubject,
+} from "../dist/domain.mjs";
 
 const now = new Date("2026-11-15T12:00:00Z");
 const appSource = readFileSync(new URL("../dist/app.mjs", import.meta.url), "utf8");
+const logicSource = readFileSync(new URL("../dist/logic.mjs", import.meta.url), "utf8");
 const htmlSource = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 
@@ -148,7 +157,12 @@ test("exports portable all-day ICS with alarms and stable identifiers", () => {
 
 test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup({ version: 99 }), /not supported/);
-  assert.throws(() => validateBackup({ version: 4, profile: {}, settings: {}, people: [], assets: [], items: new Array(1001).fill({}) }), /too many/);
+  const oversized = emptyDomainState();
+  oversized.items = new Array(1001).fill({});
+  assert.throws(() => validateBackup(oversized), /too many/);
+  const malformed = emptyDomainState();
+  malformed.items = [{ title: "Broken", category: "custom", subjectType: "asset", personId: "person-1", assetId: "asset-1", schedule: { date: "" } }];
+  assert.throws(() => validateBackup(malformed), /Invalid subject/);
 });
 
 test("starts on Plan and resets browser data on every full load in test mode", () => {
@@ -162,7 +176,7 @@ test("starts on Plan and resets browser data on every full load in test mode", (
 test("exposes safe possession deletion and keeps custom linked obligations", () => {
   assert.match(htmlSource, /id="delete-asset"[^>]*hidden/);
   assert.match(appSource, /if \(item\.provenance === "catalog"\) return \[\]/);
-  assert.match(appSource, /return \[\{ \.\.\.item, assetId: null \}\]/);
+  assert.match(appSource, /subjectType: "household", assetId: null, personId: null/);
   assert.match(appSource, /Remove this possession and its generated checklist/);
 });
 
@@ -174,7 +188,94 @@ test("supports repeated country contexts and separates context periods from perm
   assert.match(htmlSource, /name="printedExpiry"/);
 });
 
-test("country rules distinguish reviewed publications from planning contexts", () => {
-  assert.match(appSource, /does not claim a reviewed rule pack/);
+test("rules library exposes all evidence tiers without claiming every row is actionable", () => {
+  assert.equal(REGISTRY_COUNTS.countries, 42);
+  assert.equal(REGISTRY_COUNTS.rules, 694);
+  assert.equal(REGISTRY_COUNTS.sources, 426);
+  assert.deepEqual([REGISTRY_COUNTS.ready, REGISTRY_COUNTS.confirm, REGISTRY_COUNTS.research], [24, 515, 155]);
+  assert.equal(REGISTRY_RULES.length, 694);
+  assert.equal(REGISTRY_SOURCES.length, 426);
+  assert.match(appSource, /Only verified exact rules can create a trackable candidate automatically/);
   assert.doesNotMatch(stylesSource, /\.coverage-card/);
+});
+
+test("migrates v4 people, assets, and ambiguous obligations into the normalized v5 graph", () => {
+  const migrated = migrateDomainState({
+    version: 4,
+    onboarded: true,
+    locale: "en",
+    profile: { goal: "move", activeCountries: [] },
+    settings: {},
+    people: [{ id: "person-1", name: "Me", relationship: "self", citizenships: ["UZ", "RU"], jurisdictions: [{ id: "context-1", country: "RU", type: "residence", purpose: "work", route: "work_patent" }] }],
+    assets: [{ id: "car-1", type: "vehicle", label: "Car", country: "RU", ownerId: "person-1" }],
+    items: [{ id: "item-1", title: "Insurance", category: "transport", country: "RU", subjectId: "person-1", assetId: "car-1", provenance: "catalog", schedule: { kind: "expiry", date: "" }, reminderInput: "30/1", status: "active" }],
+  });
+  assert.equal(migrated.version, 5);
+  assert.deepEqual(migrated.citizenships.map((record) => record.country).sort(), ["RU", "UZ"]);
+  assert.equal(migrated.assetJurisdictions[0].country, "RU");
+  assert.deepEqual(migrated.assetPersonRoles[0], { id: migrated.assetPersonRoles[0].id, assetId: "car-1", personId: "person-1", role: "owner" });
+  assert.equal(migrated.items[0].subjectType, "asset");
+  assert.equal(migrated.items[0].responsiblePersonId, "person-1");
+  assert.equal(migrated.items[0].applicability, "candidate");
+});
+
+test("projects normalized multi-role assets into the deterministic catalog matcher", () => {
+  const state = emptyDomainState();
+  state.people = [{ id: "person-1", name: "Owner", relationship: "self" }, { id: "person-2", name: "Keeper", relationship: "dependant" }];
+  state.citizenships = [{ id: "cit-1", personId: "person-1", country: "IT" }];
+  state.countryContexts = [{ id: "context-1", personId: "person-1", country: "IT", contextType: "lives_now", purpose: "long_term" }];
+  state.legalRoutes = [{ id: "route-1", countryContextId: "context-1", routeCode: "citizen" }];
+  state.assets = [{ id: "car-1", type: "vehicle", label: "Car", facts: {} }];
+  state.assetJurisdictions = [{ id: "jur-1", assetId: "car-1", country: "IT", role: "registration", isPrimary: true }];
+  state.assetPersonRoles = [{ id: "role-1", assetId: "car-1", personId: "person-1", role: "owner", sharePercent: 50 }, { id: "role-2", assetId: "car-1", personId: "person-2", role: "keeper" }];
+  const graph = catalogGraph(state);
+  assert.equal(graph.assets[0].country, "IT");
+  assert.equal(graph.assets[0].ownerId, "person-1");
+  assert.equal(state.assetPersonRoles.length, 2);
+});
+
+test("enforces exactly one obligation subject and keeps responsibility separate", () => {
+  assert.ok(validateSubject({ subjectType: "household", personId: null, assetId: null }));
+  assert.ok(validateSubject({ subjectType: "person", personId: "person-1", assetId: null, responsiblePersonId: "person-2" }));
+  assert.ok(validateSubject({ subjectType: "asset", personId: null, assetId: "asset-1", responsiblePersonId: "person-1" }));
+  assert.ok(!validateSubject({ subjectType: "asset", personId: "person-1", assetId: "asset-1" }));
+  const obligation = normalizeCatalogObligation({ title: "Vehicle tax", assetId: "asset-1", subjectId: "person-1" }, "person-2", "candidate");
+  assert.equal(obligation.subjectType, "asset");
+  assert.equal(obligation.responsiblePersonId, "person-2");
+  assert.equal(obligation.applicability, "candidate");
+});
+
+test("onboarding does not silently choose purpose, route, document, or deadline", () => {
+  assert.match(appSource, /residencePurpose: "", residenceRoute: ""/);
+  assert.match(appSource, /plan\.route = ""/);
+  assert.doesNotMatch(appSource, /residencePurpose: "work"/);
+  assert.match(appSource, /Choose your purpose and legal route/);
+  assert.match(appSource, /applicability: "candidate"/);
+  assert.match(logicSource, /date: options\.date \|\| ""/);
+  assert.match(htmlSource, /name="hasDocument"/);
+});
+
+test("person and possession editors expose repeatable normalized connections", () => {
+  assert.match(htmlSource, /id="person-citizenship-list"/);
+  assert.match(appSource, /data-action="add-person-citizenship"/);
+  assert.match(htmlSource, /id="asset-role-list"/);
+  assert.match(htmlSource, /id="asset-jurisdiction-list"/);
+  assert.match(htmlSource, /name="subjectType"/);
+  assert.match(htmlSource, /name="responsiblePersonId"/);
+  assert.match(htmlSource, /name="vehicleClass"/);
+  assert.match(htmlSource, /name="vehiclePlateStatus"/);
+  assert.match(htmlSource, /name="relationshipType"/);
+  assert.match(htmlSource, /id="principal-relationship-field"/);
+  assert.match(appSource, /personRelationships/);
+  assert.match(appSource, /vehicleImportStatus/);
+  assert.match(appSource, /const hasCountry = Boolean\(form\.elements\.country\.value\)/);
+  assert.match(appSource, /relationshipField\.hidden = principalField\.hidden \|\| !form\.elements\.principalPersonId\.value/);
+});
+
+test("rules and country pickers remain usable with multiple targets and large registries", () => {
+  assert.match(appSource, /catalogItemKey\(item\.catalogId, itemPersonId\(item\), itemAssetId\(item\)\)/);
+  assert.match(appSource, /data-catalog-target/);
+  assert.match(appSource, /show-more-rules/);
+  assert.match(appSource, /aria-selected=/);
+  assert.match(htmlSource, /role="listbox" aria-labelledby="country-picker-title"/);
 });

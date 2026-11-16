@@ -68,4 +68,4 @@ https://your-domain.example/api/auth/callback/google
 
 Production launch requires the owner to provide the hosting account, custom domain, OAuth client, database, email sender, payment account, and jurisdiction-specific privacy/legal review. Those credentials do not exist in this repository, so live OAuth cannot be truthfully verified yet.
 
-The authoritative product schema is in [schema.sql](schema.sql). [AUTH_CONTRACT.md](AUTH_CONTRACT.md) describes OAuth and calendar separation. [DEPLOYMENT.md](DEPLOYMENT.md) is the operator runbook.
+The typed model is in `src/db/schema.ts`; checksum-protected SQL migrations are the deployment authority. `schema.sql` is only a psql convenience entry point. [AUTH_CONTRACT.md](AUTH_CONTRACT.md) describes OAuth and calendar separation. [DEPLOYMENT.md](DEPLOYMENT.md) is the operator runbook.

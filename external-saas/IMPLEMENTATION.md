@@ -38,15 +38,16 @@ Generic OIDC activates only when `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIE
 ## Database and isolation
 
 - `src/db/schema.ts` is the typed Drizzle schema.
-- `src/db/migrations/0000_initial.sql` creates Auth.js tables, the household graph, catalog tables, obligations, reminders, and RLS policies.
+- `src/db/migrations/0000_initial.sql` creates the original scaffold; `0001_domain_v2.sql` preserves those private tables under `legacy_*_v1`, imports deterministic data, and creates the normalized household graph.
 - `src/db/migrate.ts` is a checksum-protected migration runner.
 - `src/db/tenant.ts` sets the user and household context transaction-locally before tenant queries.
+- Required graph edges use composite `(entity_id, household_id)` foreign keys. Optional `SET NULL` edges use guarded triggers, so no person, asset, route, document, or obligation can be linked across households.
 
 The application database role should not own the protected tables in a mature production deployment; use a migration owner and a restricted runtime role so PostgreSQL RLS cannot be bypassed by ordinary application queries.
 
 ## Catalog status
 
-`catalog/ru/pack.json` and `catalog/uz/pack.json` contain the same 12 source-backed starter entries as the verified static beta: seven for Russia and five for Uzbekistan. Every record has three locales, a source and review date, a constrained applicability rule, a schedule template, and a default reminder sequence.
+`catalog/ru/pack.json` and `catalog/uz/pack.json` remain the localized publishable overlay. `catalog/registry.json` is the generated 42-country runtime registry: 694 rules and 426 sources split into ready, confirmation, and research tiers. Validation checks IDs, source references, exact counts, and automation permissions.
 
 “Reviewed” means the record passed this product catalog's source and schema review; it is not a promise of legal completeness. Production operations still need named jurisdiction reviewers, effective-date monitoring, a correction queue, and a publish approval trail.
 

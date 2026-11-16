@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/logic.test.mjs",
-    "check": "node --check dist/app.mjs && node --check dist/catalog.mjs && node --check dist/i18n.mjs && node --check dist/logic.mjs && node --test tests/logic.test.mjs",
+    "registry:build": "node scripts/build-runtime-registry.mjs",
+    "check": "npm run registry:build && node --check dist/app.mjs && node --check dist/catalog.mjs && node --check dist/registry.mjs && node --check dist/i18n.mjs && node --check dist/logic.mjs && node --test tests/logic.test.mjs",
     "serve": "python3 -m http.server 4173 --directory dist"
   }
 }

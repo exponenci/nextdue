@@ -1,6 +1,10 @@
 import type { AdapterAccountType } from "next-auth/adapters";
+import { sql } from "drizzle-orm";
 import {
+  boolean,
+  check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -8,6 +12,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid
 } from "drizzle-orm/pg-core";
@@ -67,105 +72,150 @@ export const memberships = appSchema.table("memberships", {
   index("memberships_user_idx").on(table.userId)
 ]);
 
-export const subjects = appSchema.table("subjects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull().$type<"person" | "asset">(),
-  displayName: text("display_name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
-}, (table) => [index("subjects_household_idx").on(table.householdId)]);
-
 export const people = appSchema.table("people", {
-  subjectId: uuid("subject_id").primaryKey().references(() => subjects.id, { onDelete: "cascade" }),
-  relationship: text("relationship").notNull().default("self"),
-  birthDate: date("birth_date", { mode: "string" })
-});
-
-export const assets = appSchema.table("assets", {
-  subjectId: uuid("subject_id").primaryKey().references(() => subjects.id, { onDelete: "cascade" }),
-  assetType: text("asset_type").notNull(),
-  assetSubtype: text("asset_subtype"),
-  ownerSubjectId: uuid("owner_subject_id").references(() => subjects.id),
-  registeredCountry: text("registered_country"),
-  currentCountry: text("current_country"),
-  details: text("details"),
-  attributes: jsonb("attributes").notNull().default({})
-});
-
-export const subjectJurisdictions = appSchema.table("subject_jurisdictions", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
-  countryCode: text("country_code").notNull(),
-  relation: text("relation").notNull().$type<"citizenship" | "residence" | "stay" | "tax" | "registration" | "location" | "destination" | "other">(),
-  legalBasis: text("legal_basis"),
-  exactStatus: text("exact_status"),
-  startsOn: date("starts_on", { mode: "string" }),
-  endsOn: date("ends_on", { mode: "string" }),
-  notes: text("notes")
-}, (table) => [index("subject_jurisdictions_household_idx").on(table.householdId)]);
+  displayLabel: text("display_label").notNull(),
+  birthDate: date("birth_date", { mode: "string" }),
+  status: text("status").notNull().default("active").$type<"active" | "archived">(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+}, (table) => [
+  unique("people_id_household_key").on(table.id, table.householdId),
+  index("people_household_idx").on(table.householdId)
+]);
 
 export const personCitizenships = appSchema.table("person_citizenships", {
+  id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  personSubjectId: uuid("person_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
-  countryCode: text("country_code").notNull()
+  personId: uuid("person_id").notNull(),
+  countryCode: text("country_code").notNull(),
+  acquiredOn: date("acquired_on", { mode: "string" }),
+  endedOn: date("ended_on", { mode: "string" }),
+  confirmation: text("confirmation").notNull().default("user_confirmed").$type<"unconfirmed" | "user_confirmed" | "verified">()
 }, (table) => [
-  primaryKey({ columns: [table.personSubjectId, table.countryCode] }),
+  foreignKey({ columns: [table.personId, table.householdId], foreignColumns: [people.id, people.householdId], name: "person_citizenships_person_household_fk" }).onDelete("cascade"),
+  uniqueIndex("person_citizenships_active_idx").on(table.personId, table.countryCode).where(sql`${table.endedOn} is null`),
   index("person_citizenships_household_idx").on(table.householdId)
 ]);
 
 export const personCountryContexts = appSchema.table("person_country_contexts", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  personSubjectId: uuid("person_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
+  personId: uuid("person_id").notNull(),
   countryCode: text("country_code").notNull(),
-  contextType: text("context_type").notNull().$type<"lives_now" | "planned_trip" | "planned_move">(),
-  purpose: text("purpose").notNull().$type<"visit" | "work" | "study" | "family" | "business" | "protection" | "long_term" | "unknown">(),
+  contextType: text("context_type").notNull().$type<"usual_residence" | "lives_now" | "physical_stay" | "destination" | "planned_trip" | "planned_move" | "tax_residence" | "previous_residence">(),
+  purpose: text("purpose").$type<"visit" | "work" | "study" | "family" | "business" | "protection" | "long_term" | "unknown">(),
   startsOn: date("starts_on", { mode: "string" }),
-  intendedUntil: date("intended_until", { mode: "string" })
-}, (table) => [index("person_country_contexts_household_idx").on(table.householdId)]);
+  endsOn: date("ends_on", { mode: "string" }),
+  confirmation: text("confirmation").notNull().default("user_confirmed").$type<"unconfirmed" | "user_confirmed" | "verified">(),
+  notes: text("notes")
+}, (table) => [
+  unique("person_country_contexts_id_household_key").on(table.id, table.householdId),
+  foreignKey({ columns: [table.personId, table.householdId], foreignColumns: [people.id, people.householdId], name: "person_country_contexts_person_household_fk" }).onDelete("cascade"),
+  index("person_country_contexts_household_idx").on(table.householdId),
+  index("person_country_contexts_person_country_idx").on(table.personId, table.countryCode)
+]);
 
-export const legalizationPaths = appSchema.table("legalization_paths", {
+export const legalRoutes = appSchema.table("legal_routes", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  countryContextId: uuid("country_context_id").notNull().references(() => personCountryContexts.id, { onDelete: "cascade" }),
+  countryContextId: uuid("country_context_id").notNull(),
   routeCode: text("route_code").notNull(),
+  routeFamily: text("route_family").notNull().default("unknown"),
   stage: text("stage").notNull().$type<"exploring" | "preparing" | "applied" | "active" | "expired" | "ended">(),
-  region: text("region"),
-  locality: text("locality"),
-  sponsorRef: text("sponsor_ref"),
-  employerRef: text("employer_ref"),
-  institutionRef: text("institution_ref"),
-  facts: jsonb("facts").notNull().default({})
-}, (table) => [index("legalization_paths_household_idx").on(table.householdId)]);
+  principalPersonId: uuid("principal_person_id").references(() => people.id, { onDelete: "set null" }),
+  factsSchemaVersion: text("facts_schema_version"),
+  facts: jsonb("facts").notNull().default({}),
+  confirmation: text("confirmation").notNull().default("unconfirmed").$type<"unconfirmed" | "user_confirmed" | "verified">()
+}, (table) => [
+  unique("legal_routes_id_household_key").on(table.id, table.householdId),
+  foreignKey({ columns: [table.countryContextId, table.householdId], foreignColumns: [personCountryContexts.id, personCountryContexts.householdId], name: "legal_routes_context_household_fk" }).onDelete("cascade"),
+  uniqueIndex("legal_routes_context_idx").on(table.countryContextId),
+  index("legal_routes_household_idx").on(table.householdId)
+]);
 
-export const statusDocuments = appSchema.table("status_documents", {
+export const routeParties = appSchema.table("route_parties", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  legalizationPathId: uuid("legalization_path_id").notNull().references(() => legalizationPaths.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  issuerCountry: text("issuer_country").notNull(),
-  status: text("status").notNull().$type<"planned" | "applied" | "active" | "expired" | "replaced" | "cancelled">(),
-  issuedAt: date("issued_at", { mode: "string" }),
-  printedExpiry: date("printed_expiry", { mode: "string" }),
-  numberHint: text("number_hint"),
+  legalRouteId: uuid("legal_route_id").notNull(),
+  partyType: text("party_type").notNull().$type<"employer" | "sponsor" | "institution" | "host" | "principal">(),
+  personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
   label: text("label"),
-  note: text("note")
-}, (table) => [index("status_documents_household_idx").on(table.householdId)]);
+  startsOn: date("starts_on", { mode: "string" }),
+  endsOn: date("ends_on", { mode: "string" })
+}, (table) => [
+  foreignKey({ columns: [table.legalRouteId, table.householdId], foreignColumns: [legalRoutes.id, legalRoutes.householdId], name: "route_parties_route_household_fk" }).onDelete("cascade"),
+  index("route_parties_route_idx").on(table.legalRouteId)
+]);
 
-export const assetDocuments = appSchema.table("asset_documents", {
+export const personRelationships = appSchema.table("person_relationships", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  assetSubjectId: uuid("asset_subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  issuerCountry: text("issuer_country"),
-  status: text("status").notNull().$type<"needed" | "active" | "expired" | "replaced" | "not_applicable">(),
-  issuedAt: date("issued_at", { mode: "string" }),
-  printedExpiry: date("printed_expiry", { mode: "string" }),
-  recurrence: jsonb("recurrence"),
-  ruleId: text("rule_id"),
-  note: text("note")
-}, (table) => [index("asset_documents_household_idx").on(table.householdId)]);
+  fromPersonId: uuid("from_person_id").notNull(),
+  toPersonId: uuid("to_person_id").notNull(),
+  relationshipType: text("relationship_type").notNull().$type<"spouse" | "child" | "parent" | "dependant" | "guardian" | "other">(),
+  startsOn: date("starts_on", { mode: "string" }),
+  endsOn: date("ends_on", { mode: "string" }),
+  confirmation: text("confirmation").notNull().default("user_confirmed")
+}, (table) => [
+  foreignKey({ columns: [table.fromPersonId, table.householdId], foreignColumns: [people.id, people.householdId], name: "person_relationships_from_household_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.toPersonId, table.householdId], foreignColumns: [people.id, people.householdId], name: "person_relationships_to_household_fk" }).onDelete("cascade"),
+  check("person_relationship_not_self", sql`${table.fromPersonId} <> ${table.toPersonId}`),
+  index("person_relationships_household_idx").on(table.householdId)
+]);
+
+export const assets = appSchema.table("assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  assetType: text("asset_type").notNull(),
+  assetSubtype: text("asset_subtype"),
+  displayLabel: text("display_label").notNull(),
+  status: text("status").notNull().default("active").$type<"active" | "disposed" | "archived">(),
+  acquiredOn: date("acquired_on", { mode: "string" }),
+  disposedOn: date("disposed_on", { mode: "string" }),
+  factsSchemaVersion: text("facts_schema_version"),
+  facts: jsonb("facts").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+}, (table) => [
+  unique("assets_id_household_key").on(table.id, table.householdId),
+  index("assets_household_idx").on(table.householdId)
+]);
+
+export const assetJurisdictions = appSchema.table("asset_jurisdictions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  assetId: uuid("asset_id").notNull(),
+  countryCode: text("country_code").notNull(),
+  subdivisionCode: text("subdivision_code"),
+  role: text("role").notNull().$type<"location" | "registration" | "tax" | "ownership" | "use" | "incorporation" | "other">(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  startsOn: date("starts_on", { mode: "string" }),
+  endsOn: date("ends_on", { mode: "string" })
+}, (table) => [
+  foreignKey({ columns: [table.assetId, table.householdId], foreignColumns: [assets.id, assets.householdId], name: "asset_jurisdictions_asset_household_fk" }).onDelete("cascade"),
+  index("asset_jurisdictions_asset_idx").on(table.assetId),
+  uniqueIndex("asset_jurisdictions_primary_idx").on(table.assetId).where(sql`${table.isPrimary} = true and ${table.endsOn} is null`),
+  index("asset_jurisdictions_household_idx").on(table.householdId)
+]);
+
+export const assetPersonRoles = appSchema.table("asset_person_roles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  assetId: uuid("asset_id").notNull(),
+  personId: uuid("person_id").notNull(),
+  role: text("role").notNull().$type<"owner" | "co_owner" | "registered_owner" | "keeper" | "operator" | "taxpayer" | "responsible_person">(),
+  shareBasisPoints: integer("share_basis_points"),
+  startsOn: date("starts_on", { mode: "string" }),
+  endsOn: date("ends_on", { mode: "string" })
+}, (table) => [
+  foreignKey({ columns: [table.assetId, table.householdId], foreignColumns: [assets.id, assets.householdId], name: "asset_person_roles_asset_household_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.personId, table.householdId], foreignColumns: [people.id, people.householdId], name: "asset_person_roles_person_household_fk" }).onDelete("cascade"),
+  check("asset_person_role_share_check", sql`${table.shareBasisPoints} is null or (${table.role} in ('owner', 'co_owner') and ${table.shareBasisPoints} between 1 and 10000)`),
+  uniqueIndex("asset_person_roles_active_idx").on(table.assetId, table.personId, table.role).where(sql`${table.endsOn} is null`),
+  index("asset_person_roles_household_idx").on(table.householdId)
+]);
 
 export const catalogPacks = appSchema.table("catalog_packs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -208,40 +258,120 @@ export const catalogSources = appSchema.table("catalog_sources", {
   reviewedAt: date("reviewed_at", { mode: "string" }).notNull()
 });
 
-export const documents = appSchema.table("documents", {
+export const registrySources = appSchema.table("registry_sources", {
+  id: text("id").primaryKey(),
+  authority: text("authority").notNull(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  jurisdiction: text("jurisdiction").notNull(),
+  language: text("language"),
+  sourceType: text("source_type").notNull(),
+  publicationOrEffectiveDate: date("publication_or_effective_date", { mode: "string" }),
+  lastVerified: date("last_verified", { mode: "string" }).notNull(),
+  notes: text("notes")
+});
+
+export const registryRules = appSchema.table("registry_rules", {
+  id: text("id").primaryKey(),
+  destinationCountry: text("destination_country").notNull(),
+  authorityLevel: text("authority_level").notNull(),
+  requirementType: text("requirement_type").notNull(),
+  requirementName: text("requirement_name").notNull(),
+  ruleSpecificity: text("rule_specificity").notNull().$type<"exact_national_rule" | "route_mapping" | "research_prompt">(),
+  reviewStatus: text("review_status").notNull().$type<"verified" | "publishable" | "mapped" | "partial" | "retired">(),
+  runtimeTier: text("runtime_tier").notNull().$type<"ready" | "confirm" | "research">(),
+  conditionExpression: jsonb("condition_expression").notNull(),
+  triggerEvent: text("trigger_event"),
+  deadlineType: text("deadline_type").notNull(),
+  deadlineValue: integer("deadline_value"),
+  deadlineUnit: text("deadline_unit"),
+  recurrence: text("recurrence"),
+  requiredEvidence: text("required_evidence").array().notNull(),
+  effectiveFrom: date("effective_from", { mode: "string" }),
+  effectiveTo: date("effective_to", { mode: "string" }),
+  lastVerified: date("last_verified", { mode: "string" }).notNull(),
+  notes: text("notes")
+}, (table) => [
+  index("registry_rules_country_tier_idx").on(table.destinationCountry, table.runtimeTier),
+  index("registry_rules_review_idx").on(table.reviewStatus, table.ruleSpecificity)
+]);
+
+export const registryRuleSources = appSchema.table("registry_rule_sources", {
+  ruleId: text("rule_id").notNull().references(() => registryRules.id, { onDelete: "cascade" }),
+  sourceId: text("source_id").notNull().references(() => registrySources.id, { onDelete: "restrict" }),
+  position: integer("position").notNull().default(0)
+}, (table) => [primaryKey({ columns: [table.ruleId, table.sourceId] })]);
+
+export const issuedDocuments = appSchema.table("issued_documents", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
-  typeKey: text("type_key").notNull(),
+  subjectType: text("subject_type").notNull().$type<"person" | "asset">(),
+  personId: uuid("person_id"),
+  assetId: uuid("asset_id"),
+  legalRouteId: uuid("legal_route_id").references(() => legalRoutes.id, { onDelete: "set null" }),
+  sourceRuleId: text("source_rule_id").references(() => registryRules.id, { onDelete: "set null" }),
+  documentType: text("document_type").notNull(),
+  title: text("title").notNull(),
   issuingCountry: text("issuing_country"),
-  expiresOn: date("expires_on", { mode: "string" }),
-  label: text("label").notNull()
-}, (table) => [index("documents_household_idx").on(table.householdId)]);
+  issuingAuthority: text("issuing_authority"),
+  status: text("status").notNull().$type<"planned" | "applied" | "active" | "expired" | "replaced" | "cancelled">(),
+  issuedOn: date("issued_on", { mode: "string" }),
+  validFrom: date("valid_from", { mode: "string" }),
+  validUntil: date("valid_until", { mode: "string" }),
+  identifierSuffix: text("identifier_suffix"),
+  confirmation: text("confirmation").notNull().default("user_confirmed"),
+  notes: text("notes")
+}, (table) => [
+  unique("issued_documents_id_household_key").on(table.id, table.householdId),
+  foreignKey({ columns: [table.personId, table.householdId], foreignColumns: [people.id, people.householdId], name: "issued_documents_person_household_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.assetId, table.householdId], foreignColumns: [assets.id, assets.householdId], name: "issued_documents_asset_household_fk" }).onDelete("cascade"),
+  check("issued_document_subject_check", sql`(${table.subjectType} = 'person' and ${table.personId} is not null and ${table.assetId} is null) or (${table.subjectType} = 'asset' and ${table.assetId} is not null and ${table.personId} is null)`),
+  index("issued_documents_household_idx").on(table.householdId),
+  index("issued_documents_person_idx").on(table.personId),
+  index("issued_documents_asset_idx").on(table.assetId)
+]);
 
 export const obligations = appSchema.table("obligations", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  subjectId: uuid("subject_id").references(() => subjects.id),
+  subjectType: text("subject_type").notNull().$type<"household" | "person" | "asset">(),
+  personId: uuid("person_id"),
+  assetId: uuid("asset_id"),
+  responsiblePersonId: uuid("responsible_person_id").references(() => people.id, { onDelete: "set null" }),
   countryContextId: uuid("country_context_id").references(() => personCountryContexts.id, { onDelete: "set null" }),
-  legalizationPathId: uuid("legalization_path_id").references(() => legalizationPaths.id, { onDelete: "set null" }),
-  statusDocumentId: uuid("status_document_id").references(() => statusDocuments.id, { onDelete: "set null" }),
-  assetDocumentId: uuid("asset_document_id").references(() => assetDocuments.id, { onDelete: "set null" }),
+  legalRouteId: uuid("legal_route_id").references(() => legalRoutes.id, { onDelete: "set null" }),
+  issuedDocumentId: uuid("issued_document_id").references(() => issuedDocuments.id, { onDelete: "set null" }),
   countryCode: text("country_code").notNull(),
+  sourceRuleId: text("source_rule_id").references(() => registryRules.id, { onDelete: "set null" }),
   catalogItemId: text("catalog_item_id"),
   catalogVersion: text("catalog_version"),
   title: text("title").notNull(),
-  schedule: jsonb("schedule").notNull(),
-  reminderInput: text("reminder_input").notNull(),
-  reminderOffsets: integer("reminder_offsets").array().notNull(),
+  deadlineKind: text("deadline_kind").notNull().default("unresolved").$type<"unresolved" | "expiry" | "due_once" | "recurring">(),
+  triggerEvent: text("trigger_event"),
+  dueOn: date("due_on", { mode: "string" }),
+  recurrence: jsonb("recurrence"),
+  deadlineSource: text("deadline_source").notNull().default("unresolved").$type<"unresolved" | "printed_document" | "official_notice" | "user_confirmed" | "rule_calculated">(),
+  applicability: text("applicability").notNull().default("candidate").$type<"candidate" | "confirmed" | "not_applicable">(),
+  reminderInput: text("reminder_input").notNull().default(""),
+  reminderOffsets: integer("reminder_offsets").array().notNull().default(sql`'{}'::integer[]`),
+  notes: text("notes"),
   status: text("status").notNull().default("active").$type<"active" | "paused" | "completed">(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
-}, (table) => [index("obligations_household_idx").on(table.householdId)]);
+}, (table) => [
+  unique("obligations_id_household_key").on(table.id, table.householdId),
+  foreignKey({ columns: [table.personId, table.householdId], foreignColumns: [people.id, people.householdId], name: "obligations_person_household_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.assetId, table.householdId], foreignColumns: [assets.id, assets.householdId], name: "obligations_asset_household_fk" }).onDelete("cascade"),
+  check("obligation_subject_check", sql`(${table.subjectType} = 'household' and ${table.personId} is null and ${table.assetId} is null) or (${table.subjectType} = 'person' and ${table.personId} is not null and ${table.assetId} is null) or (${table.subjectType} = 'asset' and ${table.assetId} is not null and ${table.personId} is null)`),
+  check("obligation_due_date_check", sql`${table.dueOn} is null or ${table.deadlineKind} <> 'unresolved'`),
+  index("obligations_household_idx").on(table.householdId),
+  index("obligations_next_due_idx").on(table.status, table.dueOn)
+]);
 
 export const reminderDeliveries = appSchema.table("reminder_deliveries", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
-  obligationId: uuid("obligation_id").notNull().references(() => obligations.id, { onDelete: "cascade" }),
+  obligationId: uuid("obligation_id").notNull(),
   occurrenceDate: date("occurrence_date", { mode: "string" }).notNull(),
   offsetDays: integer("offset_days").notNull(),
   channel: text("channel").notNull(),
@@ -249,6 +379,7 @@ export const reminderDeliveries = appSchema.table("reminder_deliveries", {
   attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true, mode: "date" })
 }, (table) => [
+  foreignKey({ columns: [table.obligationId, table.householdId], foreignColumns: [obligations.id, obligations.householdId], name: "reminder_deliveries_obligation_household_fk" }).onDelete("cascade"),
   uniqueIndex("reminder_delivery_idempotency_idx").on(
     table.householdId,
     table.obligationId,

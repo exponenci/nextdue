@@ -3,12 +3,18 @@ import {
   daysBetween, formatReminderSequence, generateICS, getCalendarEventCount, getItemStatus,
   getNextOccurrence, groupItemsForToday, makeItemFromCatalog,
   parseISODate, parseReminderSequence, sortItems, toISODate, validateBackup,
-} from "./logic.mjs?v=20261116-ux5";
+} from "./logic.mjs?v=20261116-v2";
 import {
   CATALOG, CATALOG_REVIEWED_AT, CATALOG_VERSION, COUNTRY_META,
   catalogCountryName, localized, matchCatalog,
-} from "./catalog.mjs?v=20261116-ux5";
-import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261116-ux5";
+} from "./catalog.mjs?v=20261116-v2";
+import { REGISTRY_COUNTS, REGISTRY_COUNTRIES, REGISTRY_RULES, REGISTRY_SOURCES } from "./registry.mjs?v=20261116-v2";
+import {
+  ASSET_PERSON_ROLES, assetRolesFor, catalogGraph, citizenshipCodesFor, contextsFor,
+  emptyDomainState, migrateDomainState, normalizeCatalogObligation, primaryAssetJurisdiction,
+  primaryAssetPerson, routeForContext, validateSubject,
+} from "./domain.mjs?v=20261116-v2";
+import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261116-v2";
 
 const DB_NAME = "nextdue-local";
 const DB_VERSION = 1;
@@ -48,12 +54,12 @@ const ROUTES = {
   visa_free: ["Visa-free / short stay", "Безвизовый / краткий визит", "Vizasiz / qisqa muddat"], visa: ["Visa", "Виза", "Viza"],
   work_patent: ["Work patent", "Трудовой патент", "Mehnat patenti"], work_permit: ["Work permit — qualifying category", "Разрешение на работу — подходящая категория", "Ish ruxsati — tegishli toifa"],
   eaeu_employment: ["EAEU employment — patent not required", "Работа по ЕАЭС — патент не требуется", "YEOII bo‘yicha ish — patent kerak emas"],
-  rvp: ["Temporary residence permit (RVP)", "РВП", "Vaqtinchalik yashash ruxsati (RVP)"],
+  rvp: ["Already hold active RVP status", "Уже есть действующий РВП", "Amaldagi RVP maqomi bor"],
   rvpo: ["Education temporary residence (RVPO)", "РВПО", "Ta’lim uchun vaqtinchalik yashash (RVPO)"],
-  vnzh: ["Residence permit (VNZH)", "ВНЖ", "Yashash guvohnomasi (VNZH)"],
+  vnzh: ["Already hold active VNZH status", "Уже есть действующий ВНЖ", "Amaldagi VNZH maqomi bor"],
   ru_student: ["Student visa or temporary stay", "Учебная виза или временное пребывание", "Talaba vizasi yoki vaqtincha qolish"],
   ru_family: ["Family-based stay", "Пребывание по семье", "Oila asosida qolish"], ru_business: ["Business visa / qualifying route", "Деловая виза / подходящее основание", "Biznes vizasi / tegishli asos"],
-  eu_free_movement: ["EU/EEA free-movement right", "Право свободного передвижения ЕС/ЕЭЗ", "YI/EEA erkin harakatlanish huquqi"],
+  eu_free_movement: ["EU/EEA/Swiss free-movement route", "Маршрут свободного передвижения ЕС/ЕЭЗ/Швейцарии", "YI/EEA/Shveytsariya erkin harakatlanish yo‘li"],
   eu_work: ["National work visa or permit", "Национальная рабочая виза или разрешение", "Milliy ish vizasi yoki ruxsati"],
   eu_blue_card: ["EU Blue Card — if eligible", "Голубая карта ЕС — при соответствии", "YI Ko‘k kartasi — mos bo‘lsa"],
   eu_study: ["Student visa or residence permit", "Учебная виза или ВНЖ", "Talaba vizasi yoki yashash ruxsati"],
@@ -66,7 +72,7 @@ const ROUTES = {
 };
 
 const EAEU_COUNTRIES = new Set(["AM", "BY", "KZ", "KG", "RU"]);
-const EU_EEA_COUNTRIES = new Set(["AT", "BE", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "IE", "IT", "NL", "NO", "PL", "PT", "SE"]);
+const EU_EEA_COUNTRIES = new Set(["AT", "BE", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "IE", "IT", "NL", "NO", "PL", "PT", "SE"]);
 
 const ASSET_TYPES = {
   property: { icon: "building", en: "Property", ru: "Недвижимость", uz: "Ko‘chmas mulk" },
@@ -84,73 +90,27 @@ const GOALS = {
 };
 
 function defaultState() {
-  return {
-    version: SCHEMA_VERSION,
-    onboarded: false,
-    locale: "en",
-    profile: { goal: "move", activeCountries: [] },
-    people: [{ id: "person-me", name: "Me", relationship: "self", citizenships: [], jurisdictions: [] }],
-    assets: [], items: [], dismissedCatalogIds: [],
-    settings: { privacySafeTitles: true, preparationMilestones: true, horizonMonths: 24 },
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  };
-}
-
-function migrateV1(value) {
-  if (!value || value.version !== 1) return value;
-  const person = {
-    id: "person-me", name: "Me", relationship: "self",
-    citizenships: value.profile?.citizenship ? [value.profile.citizenship] : [],
-    jurisdictions: value.profile?.residence ? [{ country: value.profile.residence, type: "residence" }] : [],
-  };
-  const defaultCountry = value.profile?.destination || value.profile?.residence || "";
-  const assets = (value.profile?.possessions || []).map((type, index) => ({ id: `migrated-${type}-${index}`, type, label: assetTypeLabel(type, "en"), country: defaultCountry, ownerId: person.id }));
-  return {
-    ...defaultState(), version: 2, onboarded: Boolean(value.onboarded),
-    profile: { goal: value.profile?.goal || "organize", activeCountries: [...new Set([person.citizenships[0], defaultCountry].filter(Boolean))] },
-    people: [person], assets,
-    items: (value.items || []).map((item) => {
-      const offsets = item.reminderOffsets || ({ early: [180, 120, 90, 30], standard: [60, 30, 7], compact: [30, 7, 1], monthly: [7, 1, 0] }[item.reminderPlan] || [60, 30, 7]);
-      return { ...item, country: item.jurisdiction || defaultCountry, subjectId: person.id, assetId: null, reminderInput: formatReminderSequence(offsets), reminderOffsets: offsets };
-    }), settings: value.settings || defaultState().settings,
-  };
+  return emptyDomainState("en");
 }
 
 function migrateState(value) {
-  const migrated = migrateV1(value);
-  if (!migrated || migrated.version === SCHEMA_VERSION) return migrated;
-  if (![2, 3].includes(migrated.version)) return migrated;
-  return {
-    ...migrated,
-    version: SCHEMA_VERSION,
-    people: (migrated.people || []).map((person) => ({
-      ...person,
-      citizenships: [...new Set(person.citizenships || [])],
-      residenceCountry: person.residenceCountry || (person.jurisdictions || []).find((relation) => relation.type === "residence")?.country || "",
-      jurisdictions: (person.jurisdictions || []).map((relation) => {
-        const citizenships = person.citizenships || []; const domestic = citizenships.includes(relation.country);
-        const oldBasis = relation.basis || "unspecified";
-        const purpose = relation.purpose || ({ employment: "work", study: "study", family: "family", tourist: "visit", business: "business", refugee: "protection" }[oldBasis] || "unknown");
-        const countryRoute = relation.country === "RU" && ["work_patent", "work_permit", "rvp", "rvpo", "vnzh"].includes(oldBasis) ? oldBasis : (domestic ? "citizen" : "not_sure");
-        const issued = Boolean(relation.statusLabel || (relation.validUntil && !["unspecified", "employment", "study", "family", "tourist", "business"].includes(oldBasis)));
-        return { id: relation.id || createId("relation"), country: relation.country, type: relation.type === "relevant" || relation.type === "other" ? "destination" : (relation.type || "residence"), contextType: relation.type === "residence" ? "lives_now" : "planned_move", purpose, route: relation.route || countryRoute, basis: relation.route || countryRoute, startsOn: relation.startsOn || "", endsOn: relation.endsOn || "", statusDocument: issued ? { label: relation.statusLabel || "", printedExpiry: relation.validUntil || "", status: "active" } : null, note: relation.note || "" };
-      }),
-    })),
-    assets: (migrated.assets || []).map((asset) => ({ ...asset, details: asset.details || "" })),
-  };
+  return migrateDomainState(value);
 }
 
 let state = defaultState();
 let setupStep = 1;
 let setupDraft = {
-  locale: "en", goal: "move", citizenships: [], residenceCountry: "", residencePurpose: "unknown", residenceRoute: "not_sure",
+  locale: "en", goal: "move", citizenships: [], residenceCountry: "", residencePurpose: "", residenceRoute: "",
   plans: [],
   assets: [],
 };
 let activeView = "plan";
 let dbMode = "indexeddb";
 let planFilters = { view: "checklist", status: "all", country: "all", personId: "all", assetType: "all", assetId: "all", open: false };
+let ruleFilters = { country: "all", tier: "all", query: "", limit: 60 };
 let countryPickerTarget = null;
+const REGISTRY_SOURCE_BY_ID = new Map(REGISTRY_SOURCES.map((source) => [source.source_id, source]));
+const CATALOG_BY_REGISTRY_ID = new Map(CATALOG.map((entry) => [`published.${entry.id}`, entry]));
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -208,7 +168,15 @@ function assetTypeLabel(type, locale = state.locale) { const meta = ASSET_TYPES[
 function localizedTuple(tuple, locale = state.locale) { return locale === "ru" ? tuple[1] : locale === "uz-Latn" ? tuple[2] : tuple[0]; }
 function purposeLabel(value, locale = state.locale) { return localizedTuple(PURPOSES[value] || PURPOSES.unknown, locale); }
 function routeLabel(value, locale = state.locale) { return localizedTuple(ROUTES[value] || ROUTES.not_sure, locale); }
-function purposeOptions(selected, includeUnknown = true) { return Object.entries(PURPOSES).filter(([value]) => includeUnknown || value !== "unknown").map(([value, labels]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(localizedTuple(labels))}</option>`).join(""); }
+function purposeOptions(selected, includeUnknown = true, country = "", citizenships = [], includePlaceholder = false) {
+  const supported = Object.entries(PURPOSES).filter(([value]) => {
+    if (value === "unknown") return includeUnknown;
+    if (!country || value === selected) return true;
+    return routeChoices(country, value, citizenships).some((route) => route !== "not_sure");
+  });
+  const placeholder = includePlaceholder ? `<option value="" ${selected ? "" : "selected"} disabled>${tx("Choose a purpose", "Выберите цель", "Maqsadni tanlang")}</option>` : "";
+  return `${placeholder}${supported.map(([value, labels]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(localizedTuple(labels))}</option>`).join("")}`;
+}
 function routeChoices(country, purpose, citizenships = []) {
   if (!country || !purpose || purpose === "unknown") return ["not_sure"];
   if (country === "RU") {
@@ -228,13 +196,16 @@ function routeChoices(country, purpose, citizenships = []) {
     if (purpose === "family") return ["eu_family", "not_sure"];
     if (purpose === "visit") return ["eu_visit", "not_sure"];
     if (purpose === "long_term") return ["eu_long_term", "not_sure"];
-    if (purpose === "business") return ["eu_work", "eu_long_term", "not_sure"];
+    if (purpose === "business") return ["not_sure"];
     return ["not_sure"];
   }
-  const generic = { work: "generic_work", study: "generic_study", family: "generic_family", visit: "generic_visit", business: "generic_work", long_term: "generic_long_term" }[purpose];
+  const generic = { work: "generic_work", study: "generic_study", family: "generic_family", visit: "generic_visit", long_term: "generic_long_term" }[purpose];
   return [generic || "not_sure", "not_sure"].filter((value, index, list) => list.indexOf(value) === index);
 }
-function routeOptions(country, purpose, citizenships, selected) { return routeChoices(country, purpose, citizenships).map((value) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(routeLabel(value))}</option>`).join(""); }
+function routeOptions(country, purpose, citizenships, selected, includePlaceholder = false) {
+  const placeholder = includePlaceholder ? `<option value="" ${selected ? "" : "selected"} disabled>${tx("Choose a route", "Выберите основание", "Asosni tanlang")}</option>` : "";
+  return `${placeholder}${routeChoices(country, purpose, citizenships).map((value) => `<option value="${value}" ${selected === value ? "selected" : ""}>${escapeHTML(routeLabel(value))}</option>`).join("")}`;
+}
 function countryName(code, locale = state.locale) {
   if (!code) return tx("Not set", "Не указано", "Ko‘rsatilmagan");
   if (code === "OTHER") return locale === "ru" ? "Другая" : locale === "uz-Latn" ? "Boshqa" : "Other";
@@ -260,13 +231,29 @@ function formatDate(value, short = false) {
 function personName(id) { const person = state.people.find((entry) => entry.id === id); if (!person) return tx("Household", "Семья", "Oila"); return person.relationship === "self" && person.id === "person-me" ? tx("Me", "Я", "Men") : person.name; }
 function displayAssetLabel(asset) { if (!asset) return ""; const meta = ASSET_TYPES[asset.type] || ASSET_TYPES.other; return [meta.en, meta.ru, meta.uz].includes(asset.label) ? assetTypeLabel(asset.type) : asset.label; }
 function assetName(id) { return displayAssetLabel(state.assets.find((asset) => asset.id === id)); }
+function personCitizenships(personId) { return citizenshipCodesFor(state, personId); }
+function personContexts(personId) { return contextsFor(state, personId); }
+function assetCountry(assetOrId) { const assetId = typeof assetOrId === "string" ? assetOrId : assetOrId?.id; return primaryAssetJurisdiction(state, assetId)?.country || ""; }
+function assetRoleLabel(role) {
+  const labels = {
+    owner: ["Owner", "Владелец", "Egasi"], co_owner: ["Co-owner", "Совладелец", "Hamega"],
+    registered_owner: ["Registered owner", "Зарегистрированный владелец", "Ro‘yxatdagi ega"], keeper: ["Keeper", "Держатель", "Saqlovchi"],
+    operator: ["Operator", "Пользователь", "Foydalanuvchi"], taxpayer: ["Taxpayer", "Налогоплательщик", "Soliq to‘lovchi"],
+    responsible_person: ["Responsible", "Ответственный", "Mas’ul"],
+  };
+  return localizedTuple(labels[role] || labels.responsible_person);
+}
+function itemPersonId(item) { return item.subjectType === "person" ? item.personId : item.responsiblePersonId; }
+function itemAssetId(item) { return item.subjectType === "asset" ? item.assetId : null; }
 function itemTitle(item) { const entry = item.catalogId ? CATALOG.find((catalogItem) => catalogItem.id === item.catalogId) : null; return entry ? localized(entry.title, state.locale) : item.title; }
 function announce(message) { const toast = document.querySelector("#toast"); toast.textContent = message; toast.classList.add("show"); window.setTimeout(() => toast.classList.remove("show"), 2800); }
 function setLanguage(locale) { state.locale = locale; document.documentElement.lang = locale === "uz-Latn" ? "uz" : locale; }
 function syncActiveCountries() {
   state.profile.activeCountries = [...new Set([
-    ...state.people.flatMap((person) => [...(person.citizenships || []), ...(person.jurisdictions || []).map((relation) => relation.country)]),
-    ...state.assets.map((asset) => asset.country), ...state.items.map((item) => item.country),
+    ...(state.citizenships || []).map((record) => record.country),
+    ...(state.countryContexts || []).map((record) => record.country),
+    ...(state.assetJurisdictions || []).map((record) => record.country),
+    ...state.items.map((item) => item.country),
   ].filter(Boolean))];
 }
 
@@ -274,26 +261,32 @@ function catalogItemKey(entryId, subjectId, assetId) {
   return `${entryId}|${subjectId || ""}|${assetId || ""}`;
 }
 
+function shouldAutoIncludeCatalogMatch(match) {
+  if (match.entry.checklistKind !== "import_customs_foreign_plate") return true;
+  const asset = state.assets.find((candidate) => candidate.id === match.assetId);
+  return asset?.facts?.vehiclePlateStatus === "foreign" || ["temporary_import", "permanent_import"].includes(asset?.facts?.vehicleImportStatus);
+}
+
 function reconcileCatalogItems() {
-  const matches = matchCatalog(state);
-  const matchedKeys = new Set(matches.map((match) => catalogItemKey(match.entry.id, match.subjectId, match.assetId)));
+  const matches = matchCatalog(catalogGraph(state));
+  const autoMatches = matches.filter(shouldAutoIncludeCatalogMatch);
+  const matchedKeys = new Set(autoMatches.map((match) => catalogItemKey(match.entry.id, match.subjectId, match.assetId)));
   state.items = state.items.filter((item) => {
     if (item.provenance !== "catalog" || !item.catalogId) return true;
     const entry = CATALOG.find((candidate) => candidate.id === item.catalogId);
     if (entry?.match?.kind === "manual") return true;
-    return matchedKeys.has(catalogItemKey(item.catalogId, item.subjectId, item.assetId));
+    return matchedKeys.has(catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item)));
   });
-  const existingKeys = new Set(state.items.map((item) => catalogItemKey(item.catalogId, item.subjectId, item.assetId)));
-  for (const match of matches) {
-    if (match.entry.checklistKind === "import_customs_foreign_plate") continue;
+  const existingKeys = new Set(state.items.map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))));
+  for (const match of autoMatches) {
     const key = catalogItemKey(match.entry.id, match.subjectId, match.assetId);
     if (existingKeys.has(key)) continue;
-    state.items.push(makeItemFromCatalog(match, {
+    state.items.push(normalizeCatalogObligation(makeItemFromCatalog(match, {
       title: localized(match.entry.title, state.locale),
       reason: localized(match.entry.summary, state.locale),
       catalogVersion: CATALOG_VERSION,
       person: personName(match.subjectId),
-    }));
+    }), match.subjectId, "candidate"));
     existingKeys.add(key);
   }
 }
@@ -302,10 +295,13 @@ function removeAssetAndLinkedItems(currentState, assetId) {
   return {
     ...currentState,
     assets: currentState.assets.filter((asset) => asset.id !== assetId),
+    assetJurisdictions: currentState.assetJurisdictions.filter((record) => record.assetId !== assetId),
+    assetPersonRoles: currentState.assetPersonRoles.filter((record) => record.assetId !== assetId),
+    issuedDocuments: currentState.issuedDocuments.filter((record) => record.assetId !== assetId),
     items: currentState.items.flatMap((item) => {
       if (item.assetId !== assetId) return [item];
       if (item.provenance === "catalog") return [];
-      return [{ ...item, assetId: null }];
+      return [{ ...item, subjectType: "household", assetId: null, personId: null }];
     }),
   };
 }
@@ -327,7 +323,7 @@ function render() {
 
 function updateNavigationLabels() {
   for (const view of ["plan", "registry", "catalog", "settings"]) document.querySelectorAll(`[data-view="${view}"] .nav-label`).forEach((el) => { el.textContent = t(state.locale, view); });
-  const local = document.querySelector("#local-badge-copy"); if (local) local.innerHTML = TEST_MODE_RESET_ON_LOAD ? `<strong>${t(state.locale, "testMode")}</strong><small>${t(state.locale, "clearedOnReload")}</small>` : `<strong>${t(state.locale, "privateByDefault")}</strong><small>${t(state.locale, "savedHere")}</small>`;
+  const local = document.querySelector("#local-badge-copy"); if (local) local.innerHTML = `<strong>${t(state.locale, "privateByDefault")}</strong><small>${t(state.locale, "savedHere")}</small>`;
   updateStaticLabels();
 }
 
@@ -353,12 +349,15 @@ function updateStaticLabels() {
   setFormLabel("#item-form", "date", tx("Confirmed date", "Подтверждённая дата", "Tasdiqlangan sana"));
   setFormLabel("#item-form", "frequency", tx("Repeats", "Повторяется", "Takrorlanadi"));
   setFormLabel("#item-form", "country", tx("Country / jurisdiction", "Страна / юрисдикция", "Mamlakat / yurisdiksiya"));
-  setFormLabel("#item-form", "subjectId", tx("Owner / person", "Владелец / человек", "Egasi / shaxs"));
-  setFormLabel("#item-form", "assetId", t(state.locale, "linkedAsset"));
+  setFormLabel("#item-form", "subjectType", tx("About", "К чему относится", "Nimaga tegishli"));
+  setFormLabel("#item-form", "personId", tx("Person", "Человек", "Shaxs"));
+  setFormLabel("#item-form", "assetId", tx("Possession", "Имущество", "Mulk"));
+  setFormLabel("#item-form", "responsiblePersonId", tx("Responsible person", "Ответственный", "Mas’ul shaxs"));
+  setFormLabel("#item-form", "applicability", tx("Does this apply?", "Это применимо?", "Bu tegishlimi?"));
   setFormLabel("#item-form", "reminderInput", t(state.locale, "reminderSequence"));
   setFormLabel("#item-form", "notes", tx("Private note (optional)", "Личная заметка (необязательно)", "Shaxsiy izoh (ixtiyoriy)"));
   setText('#item-form [name="date"] + small', tx("Leave blank until you verify it.", "Оставьте пустым до проверки.", "Tekshirmaguningizcha bo‘sh qoldiring."));
-  setText('#item-form [name="reminderInput"] + small', t(state.locale, "reminderHelp"));
+  setText('#item-form [name="reminderInput"] + small', tx("Choose the days before the deadline and separate them with /.", "Выберите дни до срока и разделите их знаком /.", "Muddatdan oldingi kunlarni tanlab, / bilan ajrating."));
   setPlaceholder('#item-form [name="title"]', tx("e.g. Property tax notice", "например, уведомление по налогу на имущество", "masalan, mol-mulk solig‘i xabarnomasi"));
   setPlaceholder('#item-form [name="notes"]', tx("What to prepare or where to check", "Что подготовить и где проверить", "Nimani tayyorlash yoki qayerda tekshirish"));
   replaceOptions(document.querySelector('#item-form [name="category"]'), [
@@ -371,19 +370,31 @@ function updateStaticLabels() {
     ["expiry", tx("Expires on", "Истекает", "Amal qilish muddati")], ["due", tx("Due once", "Разовый срок", "Bir martalik muddat")], ["recurring", tx("Repeats", "Повторяется", "Takrorlanadi")],
   ]);
   replaceOptions(document.querySelector('#item-form [name="frequency"]'), [["monthly", tx("Monthly", "Ежемесячно", "Har oy")], ["yearly", tx("Yearly", "Ежегодно", "Har yili")]]);
+  replaceOptions(document.querySelector('#item-form [name="subjectType"]'), [["household", tx("Household", "Семья", "Oila")], ["person", tx("Person", "Человек", "Shaxs")], ["asset", tx("Possession", "Имущество", "Mulk")]]);
+  replaceOptions(document.querySelector('#item-form [name="applicability"]'), [["candidate", tx("Not confirmed yet", "Пока не подтверждено", "Hali tasdiqlanmagan")], ["confirmed", tx("Yes, it applies", "Да, применимо", "Ha, tegishli")], ["not_applicable", tx("No, it does not apply", "Нет, не применимо", "Yo‘q, tegishli emas")]]);
   setText("#delete-item", tx("Remove", "Удалить", "Olib tashlash"));
   setText('#item-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#item-form [data-action="save-item"]', tx("Save obligation", "Сохранить обязанность", "Majburiyatni saqlash"));
 
   setText("#asset-dialog .eyebrow", t(state.locale, "registry"));
   setFormLabel("#asset-form", "type", tx("Type", "Тип", "Turi"));
-  setFormLabel("#asset-form", "label", tx("Exact possession", "Конкретный объект", "Aniq mulk"));
-  setFormLabel("#asset-form", "details", tx("Details", "Детали", "Tafsilotlar"));
-  setFormLabel("#asset-form", "country", t(state.locale, "country"));
-  setFormLabel("#asset-form", "ownerId", t(state.locale, "owner"));
+  setFormLabel("#asset-form", "label", tx("Private label", "Приватная метка", "Maxfiy belgi"));
+  setFormLabel("#asset-form", "vehicleIdentifierSuffix", tx("Registration or plate suffix (optional)", "Окончание номера или знака (необязательно)", "Ro‘yxat yoki raqam oxiri (ixtiyoriy)"));
+  setFormLabel("#asset-form", "vehicleClass", tx("Vehicle class (optional)", "Класс транспорта (необязательно)", "Transport turi (ixtiyoriy)"));
+  setFormLabel("#asset-form", "vehicleUse", tx("Vehicle use (optional)", "Использование транспорта (необязательно)", "Transportdan foydalanish (ixtiyoriy)"));
+  setFormLabel("#asset-form", "vehicleFirstRegisteredOn", tx("First registered (optional)", "Первая регистрация (необязательно)", "Birinchi ro‘yxatga olish (ixtiyoriy)"));
+  setFormLabel("#asset-form", "vehiclePlateStatus", tx("Plate status (optional)", "Статус номеров (необязательно)", "Raqam holati (ixtiyoriy)"));
+  setFormLabel("#asset-form", "vehicleImportStatus", tx("Import status (optional)", "Статус ввоза (необязательно)", "Import holati (ixtiyoriy)"));
+  setFormLabel("#asset-form", "propertyUse", tx("Use (optional)", "Использование (необязательно)", "Foydalanish (ixtiyoriy)"));
+  setFormLabel("#asset-form", "businessForm", tx("Legal form or tax status (optional)", "Форма или налоговый статус (необязательно)", "Huquqiy shakl yoki soliq maqomi (ixtiyoriy)"));
+  setText("#asset-roles-heading strong", tx("People and roles", "Люди и роли", "Odamlar va rollar"));
+  setText("#asset-jurisdictions-heading strong", tx("Additional jurisdictions", "Дополнительные юрисдикции", "Qo‘shimcha yurisdiksiyalar"));
   setPlaceholder('#asset-form [name="label"]', tx("e.g. Toyota Camry or Tashkent apartment", "например, Toyota Camry или квартира в Ташкенте", "masalan, Toyota Camry yoki Toshkentdagi kvartira"));
-  setPlaceholder('#asset-form [name="details"]', tx("e.g. 2022 hybrid, plate ending 42", "например, гибрид 2022 года, номер оканчивается на 42", "masalan, 2022 gibrid, raqam oxiri 42"));
-  replaceOptions(document.querySelector('#asset-form [name="type"]'), Object.keys(ASSET_TYPES).map((value) => [value, assetTypeLabel(value)]));
+  replaceOptions(document.querySelector('#asset-form [name="type"]'), [["", tx("Choose a type", "Выберите тип", "Turni tanlang")], ...Object.keys(ASSET_TYPES).map((value) => [value, assetTypeLabel(value)])]);
+  replaceOptions(document.querySelector('#asset-form [name="vehicleClass"]'), [["", tx("Not set", "Не указано", "Ko‘rsatilmagan")], ["passenger", tx("Passenger car", "Легковой автомобиль", "Yengil avtomobil")], ["motorcycle", tx("Motorcycle", "Мотоцикл", "Mototsikl")], ["commercial", tx("Commercial vehicle", "Коммерческий транспорт", "Tijorat transporti")], ["trailer", tx("Trailer", "Прицеп", "Tirkama")], ["other", tx("Other", "Другое", "Boshqa")]]);
+  replaceOptions(document.querySelector('#asset-form [name="vehicleUse"]'), [["", tx("Not set", "Не указано", "Ko‘rsatilmagan")], ["private", tx("Private", "Личное", "Shaxsiy")], ["commercial", tx("Commercial", "Коммерческое", "Tijorat")], ["taxi", tx("Taxi / rideshare", "Такси / каршеринг", "Taksi / rideshare")], ["other", tx("Other", "Другое", "Boshqa")]]);
+  replaceOptions(document.querySelector('#asset-form [name="vehiclePlateStatus"]'), [["", tx("Not set", "Не указано", "Ko‘rsatilmagan")], ["domestic", tx("Domestic plates", "Местные номера", "Mahalliy raqamlar")], ["foreign", tx("Foreign plates", "Иностранные номера", "Xorijiy raqamlar")], ["unregistered", tx("Not registered yet", "Ещё не зарегистрирован", "Hali ro‘yxatdan o‘tmagan")]]);
+  replaceOptions(document.querySelector('#asset-form [name="vehicleImportStatus"]'), [["", tx("Not set", "Не указано", "Ko‘rsatilmagan")], ["domestic", tx("Not imported", "Не ввозился", "Import qilinmagan")], ["temporary_import", tx("Temporarily imported", "Временно ввезён", "Vaqtincha import qilingan")], ["permanent_import", tx("Permanently imported", "Ввезён постоянно", "Doimiy import qilingan")]]);
   setText('#asset-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#asset-form [data-action="save-asset"]', tx("Save possession", "Сохранить имущество", "Mulkni saqlash"));
   setText("#delete-asset", tx("Remove possession", "Удалить имущество", "Mulkni olib tashlash"));
@@ -391,21 +402,31 @@ function updateStaticLabels() {
   setText("#person-dialog .eyebrow", tx("Household", "Семья", "Oila"));
   setFormLabel("#person-form", "name", tx("Name or private label", "Имя или приватная метка", "Ism yoki maxfiy belgi"));
   setPlaceholder('#person-form [name="name"]', tx("e.g. Child 1", "например, Ребёнок 1", "masalan, Bola 1"));
-  setText("#person-form .field-helper small", tx("Choose another country only if this person currently lives abroad.", "Выберите другую страну, только если человек сейчас живёт за границей.", "Boshqa mamlakatni faqat bu shaxs hozir xorijda yashasa tanlang."));
+  setText("#person-form .field-helper small", tx("Choose a current residence only when you want rules for it.", "Укажите текущее проживание, только если нужны правила для этой страны.", "Joriy yashashni faqat shu mamlakat qoidalari kerak bo‘lsa tanlang."));
+  setText("#person-form .mini-section-heading strong", tx("Citizenships", "Гражданства", "Fuqaroliklar"));
+  setText('#person-form [data-action="add-person-citizenship"]', tx("Add citizenship", "Добавить гражданство", "Fuqarolik qo‘shish"));
   setText('#person-form [data-action="use-citizenship-residence"]', tx("Use citizenship country", "Указать страну гражданства", "Fuqarolik mamlakatini tanlash"));
   setText('#person-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#person-form [data-action="save-person"]', tx("Save person", "Сохранить человека", "Shaxsni saqlash"));
 
   setText("#country-dialog .eyebrow", tx("Person & country", "Человек и страна", "Shaxs va mamlakat"));
   setFormLabel("#country-form", "recordKind", tx("Add as", "Что добавить", "Nima qo‘shish"));
+  setFormLabel("#country-form", "contextType", tx("Context", "Контекст", "Kontekst"));
   setFormLabel("#country-form", "purpose", tx("Purpose", "Цель", "Maqsad"));
   setFormLabel("#country-form", "route", tx("Route or status", "Основание или статус", "Asos yoki maqom"));
+  setFormLabel("#country-form", "routeStage", tx("Route stage", "Этап оформления", "Asos bosqichi"));
+  setFormLabel("#country-form", "principalPersonId", tx("Related person in this household (optional)", "Связанный человек в семье (необязательно)", "Oiladagi bog‘liq shaxs (ixtiyoriy)"));
+  setFormLabel("#country-form", "relationshipType", tx("Relationship to that person", "Кем приходится этому человеку", "U shaxsga munosabat"));
+  setFormLabel("#country-form", "documentValidFrom", tx("Valid from (optional)", "Действует с (необязательно)", "Amal boshlanishi (ixtiyoriy)"));
   setFormLabel("#country-form", "startsOn", tx("From (optional)", "С (необязательно)", "Boshlanishi (ixtiyoriy)"));
   setFormLabel("#country-form", "endsOn", tx("Until (optional)", "До (необязательно)", "Tugashi (ixtiyoriy)"));
   setFormLabel("#country-form", "statusLabel", tx("Document or status name", "Название документа или статуса", "Hujjat yoki maqom nomi"));
   setFormLabel("#country-form", "printedExpiry", tx("When does this permit or status expire?", "Когда истекает это разрешение или статус?", "Bu ruxsat yoki maqom qachon tugaydi?"));
   setFormLabel("#country-form", "note", tx("Note", "Примечание", "Izoh"));
   replaceOptions(document.querySelector('#country-form [name="recordKind"]'), [["relationship", tx("Work, study, visit, or move", "Работа, учёба, поездка или переезд", "Ish, o‘qish, tashrif yoki ko‘chish")], ["citizenship", tx("Citizenship", "Гражданство", "Fuqarolik")]]);
+  replaceOptions(document.querySelector('#country-form [name="contextType"]'), [["lives_now", tx("Lives here now", "Живёт здесь сейчас", "Hozir shu yerda yashaydi")], ["physical_stay", tx("Current stay", "Текущее пребывание", "Hozirgi qolish")], ["planned_trip", tx("Planned trip", "Планируемая поездка", "Rejalashtirilgan safar")], ["planned_move", tx("Planned move", "Планируемый переезд", "Rejalashtirilgan ko‘chish")], ["tax_residence", tx("Tax residence", "Налоговое резидентство", "Soliq rezidentligi")], ["previous_residence", tx("Previous residence", "Прежнее проживание", "Oldingi yashash")]]);
+  replaceOptions(document.querySelector('#country-form [name="routeStage"]'), [["exploring", tx("Exploring", "Изучаю", "O‘rganilmoqda")], ["preparing", tx("Preparing", "Готовлю документы", "Tayyorlanmoqda")], ["applied", tx("Applied", "Заявление подано", "Ariza berilgan")], ["active", tx("Active", "Действует", "Faol")], ["expired", tx("Expired", "Истекло", "Muddati tugagan")], ["ended", tx("Ended", "Завершено", "Tugagan")]]);
+  replaceOptions(document.querySelector('#country-form [name="relationshipType"]'), [["spouse", tx("Spouse", "Супруг(а)", "Turmush o‘rtog‘i")], ["child", tx("Child", "Ребёнок", "Farzand")], ["parent", tx("Parent", "Родитель", "Ota-ona")], ["dependant", tx("Dependant", "Иждивенец", "Qaramog‘idagi shaxs")], ["guardian", tx("Guardian", "Опекун", "Vasiy")], ["other", tx("Other", "Другое", "Boshqa")]]);
   setText('#country-form [data-action="close-dialog"].secondary-button', t(state.locale, "cancel"));
   setText('#country-form [data-action="save-country-relation"]', t(state.locale, "save"));
   setText("#delete-country-relation", tx("Remove", "Удалить", "Olib tashlash"));
@@ -425,43 +446,46 @@ function renderSetupStep() {
     const citizenshipSet = new Set(setupDraft.citizenships);
     const isDomestic = setupDraft.residenceCountry && citizenshipSet.has(setupDraft.residenceCountry);
     const residenceRouteChoices = routeChoices(setupDraft.residenceCountry, setupDraft.residencePurpose, setupDraft.citizenships);
-    if (!residenceRouteChoices.includes(setupDraft.residenceRoute)) setupDraft.residenceRoute = residenceRouteChoices[0];
+    if (setupDraft.residenceRoute && !residenceRouteChoices.includes(setupDraft.residenceRoute)) setupDraft.residenceRoute = "";
     return `<div class="setup-copy"><p class="step-kicker">${tx("Citizenship & residence", "Гражданство и проживание", "Fuqarolik va yashash")}</p><h2>${tx("First, tell us where you belong and live.", "Сначала укажите гражданство и где вы живёте.", "Avval fuqaroligingiz va yashash joyingizni kiriting.")}</h2><p>${tx("We ask about permits only when you live in a country where you are not a citizen.", "О разрешениях спросим только при проживании не в стране гражданства.", "Ruxsatlar faqat fuqarolik mamlakatingizdan tashqarida yashasangiz so‘raladi.")}</p></div>
       <div class="setup-subsection"><div class="mini-section-heading"><strong>${tx("Citizenship", "Гражданство", "Fuqarolik")}</strong><button class="text-button" data-action="setup-add-citizenship">${icon("plus", 15)} ${tx("Add another", "Добавить ещё", "Yana qo‘shish")}</button></div>
       <div class="country-chip-list">${setupDraft.citizenships.map((country, index) => `<div class="country-chip-edit">${countryPickerButton(country, `setup-citizenship-${index}`, { exclude: setupDraft.citizenships.filter((_, itemIndex) => itemIndex !== index) })}<button class="icon-button" data-action="setup-remove-citizenship" data-index="${index}" aria-label="${tx("Remove citizenship", "Удалить гражданство", "Fuqarolikni olib tashlash")}">${icon("close", 16)}</button></div>`).join("") || `<p class="form-note">${tx("Add at least one citizenship.", "Добавьте хотя бы одно гражданство.", "Kamida bitta fuqarolik qo‘shing.")}</p>`}</div></div>
       <div class="setup-subsection residence-section"><div class="mini-section-heading"><strong>${tx("Where do you live now?", "Где вы живёте сейчас?", "Hozir qayerda yashaysiz?")}</strong></div>
       ${setupDraft.citizenships.length ? `<div class="same-country-options">${setupDraft.citizenships.map((country) => `<button type="button" class="same-country-card ${setupDraft.residenceCountry === country ? "selected" : ""}" data-action="setup-same-residence" data-country="${country}"><span>${flagForCountry(country)}</span><span><strong>${countryName(country)}</strong><small>${tx("Same as my citizenship", "Страна моего гражданства", "Fuqarolik mamlakatim")}</small></span>${icon("check-circle", 18)}</button>`).join("")}</div>` : ""}
       <label><span>${tx("Or I live in another country", "Или я живу в другой стране", "Yoki boshqa mamlakatda yashayman")}</span>${countryPickerButton(isDomestic ? "" : setupDraft.residenceCountry, "setup-residence", { label: tx("Choose another country", "Выбрать другую страну", "Boshqa mamlakatni tanlang"), exclude: setupDraft.citizenships })}</label>
-      ${isDomestic ? `<div class="context-note success">${icon("check-circle", 17)}<span>${tx("No immigration route is needed for a citizen living in their own country.", "Для гражданина, живущего в своей стране, миграционное основание не требуется.", "O‘z mamlakatida yashovchi fuqaroga migratsiya asosi kerak emas.")}</span></div>` : setupDraft.residenceCountry ? `<div class="route-panel"><label><span>${tx(`What is your main reason for being in ${countryName(setupDraft.residenceCountry)}?`, `Какова основная цель проживания в стране «${countryName(setupDraft.residenceCountry)}»?`, `${countryName(setupDraft.residenceCountry)}da bo‘lishingizning asosiy sababi nima?`)}</span><select data-setup-residence-purpose>${purposeOptions(setupDraft.residencePurpose, false)}</select></label><label><span>${tx("Which route applies?", "Какое основание подходит?", "Qaysi asos mos keladi?")}</span><select data-setup-residence-route>${routeOptions(setupDraft.residenceCountry, setupDraft.residencePurpose, setupDraft.citizenships, setupDraft.residenceRoute)}</select><small>${tx("Only routes compatible with this country, citizenship, and purpose are shown.", "Показаны только варианты, совместимые со страной, гражданством и целью.", "Faqat mamlakat, fuqarolik va maqsadga mos variantlar ko‘rsatilgan.")}</small></label></div>` : ""}</div>
+      ${isDomestic ? `<div class="context-note success">${icon("check-circle", 17)}<span>${tx("No immigration route is needed for a citizen living in their own country.", "Для гражданина, живущего в своей стране, миграционное основание не требуется.", "O‘z mamlakatida yashovchi fuqaroga migratsiya asosi kerak emas.")}</span></div>` : setupDraft.residenceCountry ? `<div class="route-panel"><label><span>${tx(`What is your main reason for being in ${countryName(setupDraft.residenceCountry)}?`, `Какова основная цель проживания в стране «${countryName(setupDraft.residenceCountry)}»?`, `${countryName(setupDraft.residenceCountry)}da bo‘lishingizning asosiy sababi nima?`)}</span><select data-setup-residence-purpose>${purposeOptions(setupDraft.residencePurpose, true, setupDraft.residenceCountry, setupDraft.citizenships, true)}</select></label>${setupDraft.residencePurpose && setupDraft.residencePurpose !== "unknown" ? `<label><span>${tx("Which route applies?", "Какое основание подходит?", "Qaysi asos mos keladi?")}</span><select data-setup-residence-route>${routeOptions(setupDraft.residenceCountry, setupDraft.residencePurpose, setupDraft.citizenships, setupDraft.residenceRoute, true)}</select><small>${tx("No route is selected automatically. Choose only what you can confirm.", "Основание не выбирается автоматически. Укажите только подтверждённый вариант.", "Asos avtomatik tanlanmaydi. Faqat tasdiqlangan variantni tanlang.")}</small></label>` : ""}</div>` : ""}</div>
       <div class="setup-subsection"><div class="mini-section-heading"><div><strong>${tx("Trips and future moves", "Поездки и будущие переезды", "Safarlar va kelajakdagi ko‘chishlar")}</strong><small>${tx("Optional and separate from where you live now.", "Необязательно и отдельно от текущего места проживания.", "Ixtiyoriy va hozirgi yashash joyidan alohida.")}</small></div><button class="text-button" data-action="setup-add-plan">${icon("plus", 15)} ${tx("Add country", "Добавить страну", "Mamlakat qo‘shish")}</button></div>
-      <div class="plan-draft-list">${setupDraft.plans.map((plan, index) => `<div class="plan-draft-card"><div class="plan-draft-head">${countryPickerButton(plan.country, `setup-plan-${index}`, { exclude: setupDraft.citizenships })}<button class="icon-button" data-action="setup-remove-plan" data-index="${index}">${icon("close", 16)}</button></div><div class="form-grid two"><label><span>${tx("Purpose", "Цель", "Maqsad")}</span><select data-setup-plan-index="${index}" data-field="purpose">${purposeOptions(plan.purpose, false)}</select></label><label><span>${tx("Likely route", "Вероятное основание", "Ehtimoliy asos")}</span><select data-setup-plan-index="${index}" data-field="route">${routeOptions(plan.country, plan.purpose, setupDraft.citizenships, plan.route)}</select></label></div></div>`).join("") || `<p class="form-note">${tx("Add a country more than once when the purpose, route, or period is different.", "Добавляйте страну несколько раз, если отличаются цель, основание или период.", "Maqsad, asos yoki davr boshqacha bo‘lsa, mamlakatni bir necha marta qo‘shing.")}</p>`}</div></div>${setupActions(true)}`;
+      <div class="plan-draft-list">${setupDraft.plans.map((plan, index) => `<div class="plan-draft-card"><div class="plan-draft-head">${countryPickerButton(plan.country, `setup-plan-${index}`, { exclude: setupDraft.citizenships })}<button class="icon-button" data-action="setup-remove-plan" data-index="${index}">${icon("close", 16)}</button></div><div class="form-grid two"><label><span>${tx("Purpose", "Цель", "Maqsad")}</span><select data-setup-plan-index="${index}" data-field="purpose">${purposeOptions(plan.purpose, true, plan.country, setupDraft.citizenships, true)}</select></label>${plan.purpose && plan.purpose !== "unknown" ? `<label><span>${tx("Legal route", "Правовое основание", "Huquqiy asos")}</span><select data-setup-plan-index="${index}" data-field="route">${routeOptions(plan.country, plan.purpose, setupDraft.citizenships, plan.route, true)}</select></label>` : ""}</div></div>`).join("") || `<p class="form-note">${tx("Add a country more than once when the purpose, route, or period is different.", "Добавляйте страну несколько раз, если отличаются цель, основание или период.", "Maqsad, asos yoki davr boshqacha bo‘lsa, mamlakatni bir necha marta qo‘shing.")}</p>`}</div></div>${setupActions(true)}`;
   }
   if (setupStep === 3) return `<div class="setup-copy"><p class="step-kicker">${tx("Named possessions", "Конкретное имущество", "Aniq mulklar")}</p><h2>${tx("Add every object separately.", "Добавьте каждый объект отдельно.", "Har bir obyektni alohida qo‘shing.")}</h2><p>${tx("Two cars or homes can have different countries, owners, and obligations.", "У двух машин или квартир могут быть разные страны, владельцы и обязанности.", "Ikki avtomobil yoki uy turli mamlakat, egasi va majburiyatlarga ega bo‘lishi mumkin.")}</p></div>
-    <div class="dynamic-rows asset-draft-list">${setupDraft.assets.map((asset, index) => `<div class="asset-draft-card"><div class="form-grid two"><label><span>${tx("Type", "Тип", "Turi")}</span><select data-setup-asset-index="${index}" data-field="type">${Object.keys(ASSET_TYPES).map((type) => `<option value="${type}" ${asset.type === type ? "selected" : ""}>${assetTypeLabel(type)}</option>`).join("")}</select></label><label><span>${tx("Exact possession", "Конкретный объект", "Aniq mulk")}</span><input value="${escapeHTML(asset.label || "")}" data-setup-asset-index="${index}" data-field="label" placeholder="${tx("e.g. Toyota Camry", "например, Toyota Camry", "masalan, Toyota Camry")}"></label></div><label><span>${tx("Country", "Страна", "Mamlakat")}</span>${countryPickerButton(asset.country, `setup-asset-${index}`)}</label><button class="text-button danger" data-action="setup-remove-asset" data-index="${index}">${icon("trash", 15)} ${tx("Remove", "Удалить", "Olib tashlash")}</button></div>`).join("")}</div>
+    <div class="dynamic-rows asset-draft-list">${setupDraft.assets.map((asset, index) => `<div class="asset-draft-card"><div class="form-grid two"><label><span>${tx("Type", "Тип", "Turi")}</span><select data-setup-asset-index="${index}" data-field="type"><option value="">${tx("Choose a type", "Выберите тип", "Turni tanlang")}</option>${Object.keys(ASSET_TYPES).map((type) => `<option value="${type}" ${asset.type === type ? "selected" : ""}>${assetTypeLabel(type)}</option>`).join("")}</select></label><label><span>${tx("Private label", "Приватная метка", "Maxfiy belgi")}</span><input value="${escapeHTML(asset.label || "")}" data-setup-asset-index="${index}" data-field="label" placeholder="${tx("e.g. Toyota Camry", "например, Toyota Camry", "masalan, Toyota Camry")}"></label></div>${asset.type ? `<div class="form-grid two"><label><span>${asset.type === "vehicle" ? tx("Registered in", "Зарегистрировано в", "Ro‘yxatdan o‘tgan") : asset.type === "business" ? tx("Established in", "Зарегистрирован в", "Tashkil etilgan") : tx("Located in", "Находится в", "Joylashgan")}</span>${countryPickerButton(asset.country, `setup-asset-${index}`)}</label><label><span>${tx("Your role", "Ваша роль", "Sizning rolingiz")}</span><select data-setup-asset-index="${index}" data-field="role">${ASSET_PERSON_ROLES.map((role) => `<option value="${role}" ${asset.role === role ? "selected" : ""}>${assetRoleLabel(role)}</option>`).join("")}</select></label></div>` : ""}<button class="text-button danger" data-action="setup-remove-asset" data-index="${index}">${icon("trash", 15)} ${tx("Remove", "Удалить", "Olib tashlash")}</button></div>`).join("")}</div>
     <button class="secondary-button full" data-action="setup-add-asset">${icon("plus", 16)} ${tx("Add another possession", "Добавить ещё имущество", "Yana mulk qo‘shish")}</button>${setupActions(true)}`;
   const graph = graphFromDraft(); const matches = matchCatalog(graph);
-  return `<div class="setup-copy"><p class="step-kicker">${t(state.locale, "sourceBacked")}</p><h2>${tx("Review your checklist", "Проверьте свой чек-лист", "Ro‘yxatingizni tekshiring")}</h2><p>${tx("Every published rule that matches your citizenship, residence route, plans, or exact possessions is shown.", "Показаны все опубликованные правила, подходящие по гражданству, основанию проживания, планам и конкретному имуществу.", "Fuqarolik, yashash asosi, rejalar va aniq mulkka mos barcha qoidalar ko‘rsatilgan.")}</p></div><div class="pack-summary">${[...new Set(matches.map((match) => match.entry.country))].map((country) => `<span>${flagForCountry(country)} ${countryName(country)} · ${matches.filter((m) => m.entry.country === country).length}</span>`).join("")}</div>${matches.length ? `<div class="suggestion-list catalog-suggestions">${matches.map((match) => catalogSuggestion(match)).join("")}</div>` : `<div class="mini-empty"><p>${tx("No reviewed rules match yet. You can still add your own obligations after setup.", "Подходящих проверенных правил пока нет. После настройки можно добавить свои обязанности.", "Hozircha mos tekshirilgan qoidalar yo‘q. Sozlashdan keyin o‘z majburiyatlaringizni qo‘shishingiz mumkin.")}</p></div>`}${setupActions(true, true)}`;
+  return `<div class="setup-copy"><p class="step-kicker">${t(state.locale, "sourceBacked")}</p><h2>${tx("Review candidate matches", "Проверьте найденные кандидаты", "Topilgan nomzodlarni tekshiring")}</h2><p>${tx("These reviewed rules match the facts you entered, but each stays unconfirmed until you verify that it applies. Dates stay empty until you copy them from a document, event, or official notice.", "Эти проверенные правила совпали с указанными фактами, но каждое останется неподтверждённым, пока вы не проверите применимость. Даты останутся пустыми, пока вы не возьмёте их из документа, события или официального уведомления.", "Bu tekshirilgan qoidalar kiritilgan ma’lumotlarga mos, ammo tegishliligi tekshirilmaguncha tasdiqlanmagan bo‘lib qoladi. Sanalar hujjat, voqea yoki rasmiy xabardan olinmaguncha bo‘sh qoladi.")}</p></div><div class="pack-summary">${[...new Set(matches.map((match) => match.entry.country))].map((country) => `<span>${flagForCountry(country)} ${countryName(country)} · ${matches.filter((m) => m.entry.country === country).length}</span>`).join("")}</div>${matches.length ? `<div class="suggestion-list catalog-suggestions">${matches.map((match) => catalogSuggestion(match)).join("")}</div>` : `<div class="mini-empty"><p>${tx("No verified rules match yet. The Rules library still shows research for all 42 countries.", "Подходящих проверенных правил пока нет. В библиотеке всё равно доступно исследование по всем 42 странам.", "Hozircha mos tekshirilgan qoidalar yo‘q. Qoidalar kutubxonasida 42 mamlakat bo‘yicha tadqiqot mavjud.")}</p></div>`}${setupActions(true, true)}`;
 }
 
 function setupActions(back, finish = false) { return `<div class="setup-actions">${back ? `<button class="secondary-button" data-action="setup-back">${tx("Back", "Назад", "Orqaga")}</button>` : "<span></span>"}<button class="primary-button" data-action="${finish ? "finish-setup" : "setup-next"}">${finish ? tx("Create my registry", "Создать мой реестр", "Reyestrimni yaratish") : tx("Continue", "Продолжить", "Davom etish")} ${icon("arrow-right", 17)}</button></div>`; }
-function catalogSuggestion(match) { const entry = match.entry; const selected = entry.checklistKind !== "import_customs_foreign_plate"; return `<label class="suggestion-row rich"><input type="checkbox" name="catalog-suggestion" value="${entry.id}|${match.subjectId || ""}|${match.assetId || ""}" ${selected ? "checked" : ""}><span class="suggestion-check">${icon("check", 15)}</span><span><strong>${escapeHTML(localized(entry.title, state.locale))}</strong><small>${flagForCountry(entry.country)} ${escapeHTML(countryName(entry.country))} · ${escapeHTML(localized(entry.audience, state.locale))}</small></span><span class="source-tag">${entry.checklistKind === "import_customs_foreign_plate" ? tx("If applicable", "Если применимо", "Agar tegishli bo‘lsa") : CATALOG_REVIEWED_AT}</span></label>`; }
+function catalogSuggestion(match) { const entry = match.entry; const selected = entry.checklistKind !== "import_customs_foreign_plate"; return `<label class="suggestion-row rich"><input type="checkbox" name="catalog-suggestion" value="${entry.id}|${match.subjectId || ""}|${match.assetId || ""}" ${selected ? "checked" : ""}><span class="suggestion-check">${icon("check", 15)}</span><span><strong>${escapeHTML(localized(entry.title, state.locale))}</strong><small>${flagForCountry(entry.country)} ${escapeHTML(countryName(entry.country))} · ${escapeHTML(localized(entry.audience, state.locale))}</small></span><span class="source-tag">${entry.checklistKind === "import_customs_foreign_plate" ? tx("If applicable", "Если применимо", "Agar tegishli bo‘lsa") : `${tx("Reviewed", "Проверено", "Tekshirildi")} ${CATALOG_REVIEWED_AT}`}</span></label>`; }
 function graphFromDraft() {
   const citizenships = [...new Set(setupDraft.citizenships.filter(Boolean))];
   const jurisdictions = [];
   if (setupDraft.residenceCountry) jurisdictions.push({ id: "draft-residence", country: setupDraft.residenceCountry, type: "residence", contextType: "lives_now", purpose: citizenships.includes(setupDraft.residenceCountry) ? "long_term" : setupDraft.residencePurpose, route: citizenships.includes(setupDraft.residenceCountry) ? "citizen" : setupDraft.residenceRoute, basis: citizenships.includes(setupDraft.residenceCountry) ? "citizen" : setupDraft.residenceRoute });
   for (const plan of setupDraft.plans.filter((entry) => entry.country && !citizenships.includes(entry.country))) jurisdictions.push({ id: plan.id || createId("relation"), country: plan.country, type: "destination", contextType: "planned_move", purpose: plan.purpose, route: plan.route, basis: plan.route });
   const person = { id: "person-me", name: tx("Me", "Я", "Men"), relationship: "self", citizenships, residenceCountry: setupDraft.residenceCountry, jurisdictions };
-  const assets = setupDraft.assets.filter((asset) => asset.country).map((asset, index) => ({ id: asset.id || `asset-${asset.type}-${index}`, type: asset.type, label: String(asset.label || "").trim() || assetTypeLabel(asset.type), country: asset.country, ownerId: person.id, details: "" }));
+  const assets = setupDraft.assets.filter((asset) => asset.type && asset.country).map((asset, index) => ({ id: asset.id || `asset-${asset.type}-${index}`, type: asset.type, label: String(asset.label || "").trim() || assetTypeLabel(asset.type), country: asset.country, ownerId: person.id, details: "" }));
   return { people: [person], assets };
 }
 
 async function finishSetup() {
   const graph = graphFromDraft(); const selected = new Set([...document.querySelectorAll('input[name="catalog-suggestion"]:checked')].map((input) => input.value));
   const matches = matchCatalog(graph).filter((match) => selected.has(`${match.entry.id}|${match.subjectId || ""}|${match.assetId || ""}`));
-  state = defaultState(); state.onboarded = true; state.locale = setupDraft.locale;
-  state.profile = { goal: setupDraft.goal, activeCountries: [] };
-  state.people = graph.people; state.assets = graph.assets;
-  state.items = matches.map((match) => makeItemFromCatalog(match, { title: localized(match.entry.title, state.locale), reason: localized(match.entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: graph.people.find((person) => person.id === match.subjectId)?.name || "" }));
+  const legacyItems = matches.map((match) => makeItemFromCatalog(match, { title: localized(match.entry.title, setupDraft.locale), reason: localized(match.entry.summary, setupDraft.locale), catalogVersion: CATALOG_VERSION, person: graph.people.find((person) => person.id === match.subjectId)?.name || "" }));
+  state = migrateDomainState({ ...defaultState(), version: 4, onboarded: true, locale: setupDraft.locale, profile: { goal: setupDraft.goal, activeCountries: [] }, people: graph.people, assets: graph.assets, items: legacyItems });
+  for (const role of state.assetPersonRoles) {
+    const draft = setupDraft.assets.find((asset) => asset.id === role.assetId);
+    role.role = draft?.role || "owner";
+  }
+  state.items = state.items.map((item) => ({ ...item, applicability: "candidate" }));
   syncActiveCountries(); await persistState(); activeView = "plan"; render(); announce(tx("Registry created.", "Реестр создан.", "Reyestr yaratildi."));
 }
 
@@ -481,7 +505,14 @@ function statusLabel(status) {
   const labels = map[status.key] || map.missing; return state.locale === "ru" ? labels[1] : state.locale === "uz-Latn" ? labels[2] : labels[0];
 }
 
+function itemActionState(item) {
+  if (item.applicability === "candidate") return "confirm";
+  if (!parseISODate(item.schedule?.date)) return "date";
+  return "scheduled";
+}
+
 function nextActionLabel(item) {
+  if (item.applicability === "candidate") return tx("Confirm whether this rule applies", "Подтвердите, применимо ли правило", "Qoida tegishli ekanini tasdiqlang");
   if (!parseISODate(item.schedule?.date)) return tx("Add the date to schedule reminders", "Добавьте дату, чтобы запланировать напоминания", "Eslatmalar uchun sanani kiriting");
   const dueDate = getNextOccurrence(item); const days = daysBetween(new Date(), dueDate);
   const offsets = item.reminderOffsets?.length ? item.reminderOffsets : [60, 30, 7]; const firstOffset = Math.max(...offsets);
@@ -503,8 +534,11 @@ function validationMessage(message) {
 }
 
 function itemCard(item, calendar = true) {
-  const status = getItemStatus(item); const meta = CATEGORY_META[item.category] || CATEGORY_META.custom; const title = itemTitle(item);
-  return `<article class="item-card scope-card"><div class="item-icon category-${item.category}">${icon(meta.icon, 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-${status.tone}">${statusLabel(status)}</span></div><p class="scope-line"><span>${COUNTRY_META[item.country]?.flag || "🌐"} ${escapeHTML(countryName(item.country))}</span><span>${escapeHTML(personName(item.subjectId))}</span>${item.assetId ? `<span>${escapeHTML(assetName(item.assetId))}</span>` : ""}</p><p class="item-meta">${escapeHTML(scheduleDescription(item))}</p><p class="next-action">${icon("arrow-bend", 15)} ${escapeHTML(nextActionLabel(item))}</p></div><div class="item-actions">${calendar && parseISODate(item.schedule?.date) ? `<button class="icon-button" data-action="calendar-menu" data-id="${item.id}" aria-label="${tx("Calendar options for", "Параметры календаря для", "Kalendar parametrlari")}: ${escapeHTML(title)}">${icon("calendar", 18)}</button>` : ""}<button class="icon-button" data-action="edit-item" data-id="${item.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(title)}">${icon("edit", 18)}</button></div></article>`;
+  const status = getItemStatus(item); const actionState = itemActionState(item); const meta = CATEGORY_META[item.category] || CATEGORY_META.custom; const title = itemTitle(item);
+  const subject = item.subjectType === "asset" ? assetName(item.assetId) : item.subjectType === "person" ? personName(item.personId) : tx("Household", "Семья", "Oila");
+  const responsible = item.responsiblePersonId && !(item.subjectType === "person" && item.personId === item.responsiblePersonId) ? personName(item.responsiblePersonId) : "";
+  const badge = actionState === "confirm" ? { tone: "warning", label: tx("Confirm", "Уточнить", "Tasdiqlash") } : { tone: status.tone, label: statusLabel(status) };
+  return `<article class="item-card scope-card"><div class="item-icon category-${item.category}">${icon(meta.icon, 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-${badge.tone}">${badge.label}</span></div><p class="scope-line"><span>${COUNTRY_META[item.country]?.flag || "🌐"} ${escapeHTML(countryName(item.country))}</span><span>${escapeHTML(subject)}</span>${responsible ? `<span>${tx("Responsible", "Ответственный", "Mas’ul")}: ${escapeHTML(responsible)}</span>` : ""}</p><p class="item-meta">${escapeHTML(scheduleDescription(item))}</p><p class="next-action">${icon("arrow-bend", 15)} ${escapeHTML(nextActionLabel(item))}</p></div><div class="item-actions">${calendar && parseISODate(item.schedule?.date) ? `<button class="icon-button" data-action="calendar-menu" data-id="${item.id}" aria-label="${tx("Calendar options for", "Параметры календаря для", "Kalendar parametrlari")}: ${escapeHTML(title)}">${icon("calendar", 18)}</button>` : ""}<button class="icon-button" data-action="edit-item" data-id="${item.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(title)}">${icon("edit", 18)}</button></div></article>`;
 }
 
 function renderGroup(title, subtitle, items) { if (!items.length) return ""; return `<section class="item-group"><div class="section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count">${items.length}</span></div><div class="item-list">${items.map((item) => itemCard(item)).join("")}</div></section>`; }
@@ -512,22 +546,24 @@ function renderGroup(title, subtitle, items) { if (!items.length) return ""; ret
 function renderPlan() {
   const filtered = state.items.filter((item) => {
     if (planFilters.country !== "all" && item.country !== planFilters.country) return false;
-    if (planFilters.personId !== "all" && item.subjectId !== planFilters.personId) return false;
-    const linkedAsset = item.assetId ? state.assets.find((asset) => asset.id === item.assetId) : null;
+    if (planFilters.personId !== "all" && item.personId !== planFilters.personId && item.responsiblePersonId !== planFilters.personId) return false;
+    const linkedAsset = itemAssetId(item) ? state.assets.find((asset) => asset.id === itemAssetId(item)) : null;
     if (planFilters.assetType !== "all" && linkedAsset?.type !== planFilters.assetType) return false;
-    if (planFilters.assetId !== "all" && item.assetId !== planFilters.assetId) return false;
+    if (planFilters.assetId !== "all" && itemAssetId(item) !== planFilters.assetId) return false;
     const status = getItemStatus(item);
-    if (planFilters.status === "needs" && (item.status !== "active" || parseISODate(item.schedule?.date))) return false;
+    if (planFilters.status === "confirm" && (item.status !== "active" || item.applicability !== "candidate")) return false;
+    if (planFilters.status === "needs" && (item.status !== "active" || item.applicability === "candidate" || parseISODate(item.schedule?.date))) return false;
     if (planFilters.status === "now" && (item.status !== "active" || !["overdue", "now"].includes(status.key))) return false;
     if (planFilters.status === "completed" && item.status !== "completed") return false;
     return true;
   });
-  const dated = sortItems(filtered.filter((item) => parseISODate(item.schedule?.date) && item.status === "active")); const missing = filtered.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active"); const groups = new Map();
+  const dated = sortItems(filtered.filter((item) => parseISODate(item.schedule?.date) && item.status === "active" && item.applicability !== "candidate")); const toConfirm = filtered.filter((item) => item.status === "active" && item.applicability === "candidate"); const missing = filtered.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active" && item.applicability !== "candidate"); const groups = new Map();
   dated.forEach((item) => { const key = getNextOccurrence(item).slice(0, 7); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
   const allActive = state.items.filter((item) => item.status === "active");
-  const needsCount = allActive.filter((item) => !parseISODate(item.schedule?.date)).length;
+  const confirmCount = allActive.filter((item) => item.applicability === "candidate").length;
+  const needsCount = allActive.filter((item) => item.applicability !== "candidate" && !parseISODate(item.schedule?.date)).length;
   const urgency = groupItemsForToday(allActive); const attention = urgency.now.length;
-  const title = attention ? tx(`${attention} item${attention === 1 ? "" : "s"} need attention`, `${attention} ${attention === 1 ? "задача требует" : "задачи требуют"} внимания`, `${attention} ta vazifa e’tibor talab qiladi`) : needsCount ? tx(`${needsCount} dates need confirmation`, `${needsCount} дат нужно подтвердить`, `${needsCount} ta sanani tasdiqlash kerak`) : tx("Everything is on track", "Всё под контролем", "Hammasi nazoratda");
+  const title = attention ? tx(`${attention} item${attention === 1 ? "" : "s"} need attention`, `${attention} ${attention === 1 ? "задача требует" : "задачи требуют"} внимания`, `${attention} ta vazifa e’tibor talab qiladi`) : confirmCount ? tx(`${confirmCount} rule${confirmCount === 1 ? "" : "s"} need confirmation`, `${confirmCount} правил нужно уточнить`, `${confirmCount} ta qoidani tasdiqlash kerak`) : needsCount ? tx(`${needsCount} dates need confirmation`, `${needsCount} дат нужно подтвердить`, `${needsCount} ta sanani tasdiqlash kerak`) : tx("Everything is on track", "Всё под контролем", "Hammasi nazoratda");
   const filterCount = [planFilters.country, planFilters.personId, planFilters.assetType, planFilters.assetId].filter((value) => value !== "all").length;
   const completed = filtered.filter((item) => item.status === "completed");
   const visibleGroups = groupItemsForToday(filtered);
@@ -537,13 +573,13 @@ function renderPlan() {
     planFilters.assetType !== "all" ? `<button data-action="clear-plan-filter" data-filter="assetType">${escapeHTML(assetTypeLabel(planFilters.assetType))} ×</button>` : "",
     planFilters.assetId !== "all" ? `<button data-action="clear-plan-filter" data-filter="assetId">${escapeHTML(assetName(planFilters.assetId))} ×</button>` : "",
   ].filter(Boolean).join("");
-  const checklist = `${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), visibleGroups.now)}${renderGroup(t(state.locale, "addDates"), tx("Add an exact date to schedule reminders.", "Добавьте точную дату для напоминаний.", "Eslatmalar uchun aniq sanani kiriting."), visibleGroups.missing)}${renderGroup(t(state.locale, "comingUp"), tx("Plan these next.", "Следующие в плане.", "Keyingi reja."), visibleGroups.upcoming)}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), visibleGroups.covered)}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed)}`;
-  const timeline = `${renderGroup(t(state.locale, "addDates"), tx("Add an exact date before it can appear on the timeline.", "Добавьте точную дату, чтобы задача появилась на таймлайне.", "Vaqt jadvalida ko‘rinishi uchun aniq sana kiriting."), missing)}<div class="timeline">${[...groups.entries()].map(([month, items]) => `<section class="timeline-month"><div class="month-label"><span>${new Intl.DateTimeFormat(state.locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseISODate(`${month}-01`))}</span><i></i></div><div class="timeline-items">${items.map((item) => itemCard(item)).join("")}</div></section>`).join("")}</div>${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed)}`;
+  const checklist = `${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), visibleGroups.now.filter((item) => item.applicability !== "candidate"))}${renderGroup(tx("Confirm applicability", "Уточнить применимость", "Tegishliligini tasdiqlash"), tx("Check whether each matched rule really applies to this person or possession.", "Проверьте, действительно ли правило относится к этому человеку или объекту.", "Har bir mos qoida shaxs yoki mulkka tegishli ekanini tekshiring."), toConfirm)}${renderGroup(t(state.locale, "addDates"), tx("Add an exact date to schedule reminders.", "Добавьте точную дату для напоминаний.", "Eslatmalar uchun aniq sanani kiriting."), visibleGroups.missing.filter((item) => item.applicability !== "candidate"))}${renderGroup(t(state.locale, "comingUp"), tx("Plan these next.", "Следующие в плане.", "Keyingi reja."), visibleGroups.upcoming.filter((item) => item.applicability !== "candidate"))}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), visibleGroups.covered.filter((item) => item.applicability !== "candidate"))}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed)}`;
+  const timeline = `<div class="timeline">${[...groups.entries()].map(([month, items]) => `<section class="timeline-month"><div class="month-label"><span>${new Intl.DateTimeFormat(state.locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseISODate(`${month}-01`))}</span><i></i></div><div class="timeline-items">${items.map((item) => itemCard(item)).join("")}</div></section>`).join("")}</div>${dated.length ? "" : `<div class="mini-empty"><p>${tx("Confirmed dates will appear here.", "Здесь появятся подтверждённые даты.", "Tasdiqlangan sanalar shu yerda ko‘rinadi.")}</p></div>`}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed.filter((item) => parseISODate(item.schedule?.date)))}`;
   const assetTypes = Object.keys(ASSET_TYPES).filter((type) => state.assets.some((asset) => asset.type === type));
-  const eligibleAssets = state.assets.filter((asset) => (planFilters.country === "all" || asset.country === planFilters.country) && (planFilters.assetType === "all" || asset.type === planFilters.assetType));
+  const eligibleAssets = state.assets.filter((asset) => (planFilters.country === "all" || assetCountry(asset) === planFilters.country) && (planFilters.assetType === "all" || asset.type === planFilters.assetType));
   const countryStrip = `<section class="country-strip">${(state.profile.activeCountries || []).map((country) => `<button data-action="open-catalog-country" data-country="${country}"><span>${flagForCountry(country)}</span><strong>${countryName(country)}</strong><small>${state.items.filter((item) => item.country === country).length} ${tx("tracked", "в плане", "rejada")}</small></button>`).join("")}<button class="add-country" data-action="change-view" data-view="registry">${icon("plus", 18)}<strong>${tx("People & countries", "Люди и страны", "Odamlar va mamlakatlar")}</strong></button></section>`;
-  const filterPanel = planFilters.open ? `<aside class="plan-filter-panel"><div class="filter-panel-head"><strong>${tx("Filter the plan", "Фильтры плана", "Reja filtrlari")}</strong><button class="icon-button" data-action="toggle-plan-filters">${icon("close", 17)}</button></div><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select data-plan-filter="country"><option value="all">${tx("All countries", "Все страны", "Barcha mamlakatlar")}</option>${(state.profile.activeCountries || []).map((country) => `<option value="${country}" ${planFilters.country === country ? "selected" : ""}>${flagForCountry(country)} ${countryName(country)}</option>`).join("")}</select></label><label><span>${tx("Person", "Человек", "Shaxs")}</span><select data-plan-filter="personId"><option value="all">${tx("Everyone", "Все", "Barchasi")}</option>${state.people.map((person) => `<option value="${person.id}" ${planFilters.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("")}</select></label>${assetTypes.length ? `<label><span>${tx("Possession type", "Тип имущества", "Mulk turi")}</span><select data-plan-filter="assetType"><option value="all">${tx("All types", "Все типы", "Barcha turlar")}</option>${assetTypes.map((type) => `<option value="${type}" ${planFilters.assetType === type ? "selected" : ""}>${escapeHTML(assetTypeLabel(type))}</option>`).join("")}</select></label><label><span>${tx("Exact possession", "Конкретный объект", "Aniq mulk")}</span><select data-plan-filter="assetId"><option value="all">${tx("All possessions", "Все объекты", "Barcha mulklar")}</option>${eligibleAssets.map((asset) => `<option value="${asset.id}" ${planFilters.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${flagForCountry(asset.country)} ${countryName(asset.country)}</option>`).join("")}</select></label>` : ""}<button class="secondary-button full" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></aside>` : "";
-  return `${viewHeader(tx("Prioritized across your household", "Приоритеты всей семьи", "Oila bo‘yicha ustuvorliklar"), title, tx("Urgent, missing, upcoming, and covered obligations in one plan.", "Срочные, незаполненные, предстоящие и контролируемые обязанности — в одном плане.", "Shoshilinch, sanasiz, yaqin va nazoratdagi majburiyatlar bitta rejada."), "plan")}${countryStrip}<div class="plan-toolbar"><div class="segmented"><button class="${planFilters.view === "checklist" ? "active" : ""}" data-action="set-plan-view" data-value="checklist">${tx("Checklist", "Чек-лист", "Ro‘yxat")}</button><button class="${planFilters.view === "timeline" ? "active" : ""}" data-action="set-plan-view" data-value="timeline">${tx("Timeline", "Таймлайн", "Vaqt jadvali")}</button></div><button class="secondary-button compact" data-action="toggle-plan-filters">${icon("sliders", 16)} ${tx("Filters", "Фильтры", "Filtrlar")}${filterCount ? ` (${filterCount})` : ""}</button></div><div class="plan-status-tabs">${[["all", tx("All", "Все", "Barchasi")], ["now", t(state.locale, "actNow")], ["needs", t(state.locale, "addDates")], ["completed", tx("Completed", "Завершено", "Bajarildi")]].map(([value, label]) => `<button class="${planFilters.status === value ? "active" : ""}" data-action="set-plan-status" data-value="${value}">${label}</button>`).join("")}</div>${activeChips ? `<div class="active-filter-chips">${activeChips}<button data-action="clear-plan-filters">${tx("Clear all", "Сбросить", "Tozalash")}</button></div>` : ""}${filterPanel}<div class="plan-content">${planFilters.view === "timeline" ? timeline : checklist}</div>${!filtered.length ? `<div class="mini-empty"><p>${tx("No obligations match these filters.", "По этим фильтрам ничего не найдено.", "Bu filtrlarga mos majburiyat yo‘q.")}</p><button class="secondary-button compact" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></div>` : ""}`;
+  const filterPanel = planFilters.open ? `<aside class="plan-filter-panel"><div class="filter-panel-head"><strong>${tx("Filter the plan", "Фильтры плана", "Reja filtrlari")}</strong><button class="icon-button" data-action="toggle-plan-filters">${icon("close", 17)}</button></div><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select data-plan-filter="country"><option value="all">${tx("All countries", "Все страны", "Barcha mamlakatlar")}</option>${(state.profile.activeCountries || []).map((country) => `<option value="${country}" ${planFilters.country === country ? "selected" : ""}>${flagForCountry(country)} ${countryName(country)}</option>`).join("")}</select></label>${state.people.length > 1 ? `<label><span>${tx("Person", "Человек", "Shaxs")}</span><select data-plan-filter="personId"><option value="all">${tx("Everyone", "Все", "Barchasi")}</option>${state.people.map((person) => `<option value="${person.id}" ${planFilters.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("")}</select></label>` : ""}${assetTypes.length ? `<label><span>${tx("Possession type", "Тип имущества", "Mulk turi")}</span><select data-plan-filter="assetType"><option value="all">${tx("All types", "Все типы", "Barcha turlar")}</option>${assetTypes.map((type) => `<option value="${type}" ${planFilters.assetType === type ? "selected" : ""}>${escapeHTML(assetTypeLabel(type))}</option>`).join("")}</select></label><label><span>${tx("Exact possession", "Конкретный объект", "Aniq mulk")}</span><select data-plan-filter="assetId"><option value="all">${tx("All possessions", "Все объекты", "Barcha mulklar")}</option>${eligibleAssets.map((asset) => `<option value="${asset.id}" ${planFilters.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${flagForCountry(assetCountry(asset))} ${countryName(assetCountry(asset))}</option>`).join("")}</select></label>` : ""}<button class="secondary-button full" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></aside>` : "";
+  return `${viewHeader(tx("Prioritized across your household", "Приоритеты всей семьи", "Oila bo‘yicha ustuvorliklar"), title, tx("Urgent, unconfirmed, undated, and upcoming obligations in one plan.", "Срочные, неподтверждённые, без даты и предстоящие обязанности — в одном плане.", "Shoshilinch, tasdiqlanmagan, sanasiz va yaqin majburiyatlar bitta rejada."), "plan")}${countryStrip}<div class="plan-toolbar"><div class="segmented"><button class="${planFilters.view === "checklist" ? "active" : ""}" data-action="set-plan-view" data-value="checklist">${tx("Checklist", "Чек-лист", "Ro‘yxat")}</button><button class="${planFilters.view === "timeline" ? "active" : ""}" data-action="set-plan-view" data-value="timeline">${tx("Timeline", "Таймлайн", "Vaqt jadvali")}</button></div><button class="secondary-button compact" data-action="toggle-plan-filters">${icon("sliders", 16)} ${tx("Filters", "Фильтры", "Filtrlar")}${filterCount ? ` (${filterCount})` : ""}</button></div><div class="plan-status-tabs">${[["all", tx("All", "Все", "Barchasi")], ["now", t(state.locale, "actNow")], ["confirm", tx("Confirm", "Уточнить", "Tasdiqlash")], ["needs", t(state.locale, "addDates")], ["completed", tx("Completed", "Завершено", "Bajarildi")]].map(([value, label]) => `<button class="${planFilters.status === value ? "active" : ""}" data-action="set-plan-status" data-value="${value}">${label}</button>`).join("")}</div>${activeChips ? `<div class="active-filter-chips">${activeChips}<button data-action="clear-plan-filters">${tx("Clear all", "Сбросить", "Tozalash")}</button></div>` : ""}${filterPanel}<div class="plan-content">${planFilters.view === "timeline" ? timeline : checklist}</div>${!filtered.length ? `<div class="mini-empty"><p>${tx("No obligations match these filters.", "По этим фильтрам ничего не найдено.", "Bu filtrlarga mos majburiyat yo‘q.")}</p><button class="secondary-button compact" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></div>` : ""}`;
 }
 
 function renderRegistry() {
@@ -552,53 +588,109 @@ function renderRegistry() {
 
 function personCard(person) {
   const name = personName(person.id);
-  const citizenships = (person.citizenships || []).map((country) => `<button class="relation-chip citizenship-chip" data-action="edit-country" data-person-id="${person.id}" data-citizenship-country="${country}"><span>${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}</span><small>${tx("Citizen", "Гражданство", "Fuqarolik")}</small></button>`).join("");
-  const relations = (person.jurisdictions || []).map((relation) => {
+  const citizenships = personCitizenships(person.id).map((country) => `<button class="relation-chip citizenship-chip" data-action="edit-country" data-person-id="${person.id}" data-citizenship-country="${country}"><span>${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}</span><small>${tx("Citizen", "Гражданство", "Fuqarolik")}</small></button>`).join("");
+  const relations = personContexts(person.id).map((relation) => {
+    const route = routeForContext(state, relation.id);
     const period = [relation.startsOn ? formatDate(relation.startsOn, true) : "", relation.endsOn ? formatDate(relation.endsOn, true) : ""].filter(Boolean).join("–");
-    const permitExpiry = relation.statusDocument?.printedExpiry || relation.validUntil;
-    return `<button class="relation-chip" data-action="edit-country" data-person-id="${person.id}" data-relation-id="${relation.id}"><span>${flagForCountry(relation.country)} ${countryName(relation.country)}</span><small>${relation.type === "residence" ? tx("Lives here", "Живёт здесь", "Shu yerda yashaydi") : tx("Country context", "Контекст страны", "Mamlakat konteksti")} · ${purposeLabel(relation.purpose)} · ${routeLabel(relation.route || relation.basis)}${period ? ` · ${period}` : ""}${permitExpiry ? ` · ${tx("permit expires", "разрешение до", "ruxsat tugaydi")} ${formatDate(permitExpiry, true)}` : ""}</small></button>`;
+    const permitExpiry = state.issuedDocuments.find((document) => document.legalRouteId === route?.id && document.validUntil)?.validUntil;
+    return `<button class="relation-chip" data-action="edit-country" data-person-id="${person.id}" data-relation-id="${relation.id}"><span>${flagForCountry(relation.country)} ${countryName(relation.country)}</span><small>${relation.contextType === "lives_now" ? tx("Lives here", "Живёт здесь", "Shu yerda yashaydi") : tx("Country context", "Контекст страны", "Mamlakat konteksti")} · ${purposeLabel(relation.purpose)} · ${routeLabel(route?.routeCode || "not_sure")}${period ? ` · ${period}` : ""}${permitExpiry ? ` · ${tx("document until", "документ до", "hujjat tugaydi")} ${formatDate(permitExpiry, true)}` : ""}</small></button>`;
   }).join("");
-  return `<article class="person-registry-card"><div class="person-card-head"><span class="avatar">${escapeHTML(name.slice(0, 1).toUpperCase())}</span><div><h3>${escapeHTML(name)}</h3><small>${state.items.filter((item) => item.subjectId === person.id).length} ${tx("obligations", "обязанностей", "majburiyat")}</small></div><button class="icon-button" data-action="edit-person" data-id="${person.id}" aria-label="${tx("Edit person", "Изменить человека", "Shaxsni tahrirlash")}: ${escapeHTML(name)}">${icon("edit", 18)}</button></div><div class="relation-list">${citizenships}${relations}<button class="relation-chip add-relation" data-action="add-country" data-person-id="${person.id}">${icon("plus", 14)} <span>${tx("Add another country context", "Добавить ещё один контекст страны", "Yana mamlakat kontekstini qo‘shish")}</span></button></div></article>`;
+  return `<article class="person-registry-card"><div class="person-card-head"><span class="avatar">${escapeHTML(name.slice(0, 1).toUpperCase())}</span><div><h3>${escapeHTML(name)}</h3><small>${state.items.filter((item) => item.personId === person.id || item.responsiblePersonId === person.id).length} ${tx("obligations", "обязанностей", "majburiyat")}</small></div><button class="icon-button" data-action="edit-person" data-id="${person.id}" aria-label="${tx("Edit person", "Изменить человека", "Shaxsni tahrirlash")}: ${escapeHTML(name)}">${icon("edit", 18)}</button></div><div class="relation-list">${citizenships}${relations}<button class="relation-chip add-relation" data-action="add-country" data-person-id="${person.id}">${icon("plus", 14)} <span>${tx("Add citizenship or country context", "Добавить гражданство или контекст страны", "Fuqarolik yoki mamlakat kontekstini qo‘shish")}</span></button></div></article>`;
 }
 
-function assetCard(asset) { const meta = ASSET_TYPES[asset.type] || ASSET_TYPES.other; return `<article class="registry-card"><span class="item-icon category-${asset.type === "vehicle" ? "transport" : asset.type === "business" ? "tax" : asset.type}">${icon(meta.icon, 19)}</span><div><h3>${escapeHTML(displayAssetLabel(asset))}</h3><p>${assetTypeLabel(asset.type)} · ${COUNTRY_META[asset.country]?.flag || "🌐"} ${countryName(asset.country)} · ${personName(asset.ownerId)}</p>${asset.details ? `<p>${escapeHTML(asset.details)}</p>` : ""}<small>${state.items.filter((item) => item.assetId === asset.id).length} ${tx("linked obligations", "связанных обязанностей", "bog‘langan majburiyat")}</small></div><button class="icon-button" data-action="edit-asset" data-id="${asset.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(displayAssetLabel(asset))}">${icon("edit", 18)}</button></article>`; }
+function assetCard(asset) {
+  const meta = ASSET_TYPES[asset.type] || ASSET_TYPES.other; const country = assetCountry(asset);
+  const roles = assetRolesFor(state, asset.id).map((record) => `${personName(record.personId)} · ${assetRoleLabel(record.role)}`).join("; ");
+  return `<article class="registry-card"><span class="item-icon category-${asset.type === "vehicle" ? "transport" : asset.type === "business" ? "tax" : asset.type}">${icon(meta.icon, 19)}</span><div><h3>${escapeHTML(displayAssetLabel(asset))}</h3><p>${assetTypeLabel(asset.type)} · ${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}</p>${roles ? `<p>${escapeHTML(roles)}</p>` : `<p>${tx("No person role assigned", "Роль человека не назначена", "Shaxs roli belgilanmagan")}</p>`}<small>${state.items.filter((item) => item.assetId === asset.id).length} ${tx("linked obligations", "связанных обязанностей", "bog‘langan majburiyat")}</small></div><button class="icon-button" data-action="edit-asset" data-id="${asset.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(displayAssetLabel(asset))}">${icon("edit", 18)}</button></article>`;
+}
 
 function renderCatalog() {
-  const trackedIds = new Set(state.items.map((item) => item.catalogId));
-  const matched = matchCatalog(state); const matchedIds = new Set(matched.map((item) => item.entry.id));
-  const related = [...new Set([...state.people.flatMap((person) => person.citizenships || []), ...state.people.flatMap((person) => (person.jurisdictions || []).map((relation) => relation.country)), ...state.assets.map((asset) => asset.country)])];
-  const countries = [...new Set(CATALOG.map((entry) => entry.country))].sort((a, b) => { const ai = related.indexOf(a); const bi = related.indexOf(b); if (ai >= 0 || bi >= 0) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi); return countryName(a).localeCompare(countryName(b), state.locale); });
-  const ordered = [...CATALOG].sort((a, b) => { const ac = countries.indexOf(a.country) - countries.indexOf(b.country); if (ac) return ac; const am = matchedIds.has(a.id) ? 0 : 1; const bm = matchedIds.has(b.id) ? 0 : 1; return am - bm || localized(a.title, state.locale).localeCompare(localized(b.title, state.locale), state.locale); });
-  return `${viewHeader(t(state.locale, "sourceBacked"), t(state.locale, "catalog"), tx("All published rules are browsable. Your citizenship, residence, plans, and possessions appear first.", "Все опубликованные правила доступны для просмотра. Сначала — ваши гражданства, проживание, планы и имущество.", "Barcha e’lon qilingan qoidalarni ko‘rish mumkin. Avval sizning fuqaroligingiz, yashashingiz, rejalaringiz va mulkingiz ko‘rsatiladi."), "none")}<aside class="catalog-scope-note">${icon("info", 18)}<p>${tx("Published here means reviewed with an official source and review date. Other countries remain available as planning contexts, but NextDue does not claim a reviewed rule pack for them yet.", "Опубликовано здесь — значит проверено по официальному источнику с датой проверки. Другие страны доступны как контексты планирования, но NextDue пока не заявляет для них проверенный пакет правил.", "Bu yerda e’lon qilingan qoida rasmiy manba va tekshiruv sanasi bilan ko‘rib chiqilgan. Boshqa mamlakatlar rejalash konteksti sifatida mavjud, ammo ular uchun hali tekshirilgan qoidalar to‘plami da’vo qilinmaydi.")}</p></aside><div class="catalog-summary"><strong>${matched.length} ${tx("match your profile", "подходят вашему профилю", "profilingizga mos")}</strong><span>${CATALOG.length} ${tx("published rules", "опубликованных правил", "e’lon qilingan qoida")} · ${t(state.locale, "lastReviewed")}: ${CATALOG_REVIEWED_AT}</span></div><div class="catalog-toolbar"><div class="catalog-tabs"><button class="active" data-country-filter="all">${tx("All", "Все", "Barchasi")} · ${CATALOG.length}</button>${countries.map((country) => `<button data-country-filter="${country}">${flagForCountry(country)} ${countryName(country)} · ${CATALOG.filter((entry) => entry.country === country).length}</button>`).join("")}</div></div><div class="catalog-grid">${ordered.map((entry) => catalogCard(entry, trackedIds.has(entry.id), matchedIds.has(entry.id))).join("")}</div><aside class="principle-card">${icon("info", 20)}<div><strong>${t(state.locale, "catalogDisclaimer")}</strong><p>${tx("A rule can be browsed without applying to you. NextDue adds it only when your saved facts make it applicable, or when it is a manual document you choose to track.", "Правило можно просмотреть, даже если оно к вам не относится. NextDue добавит его только при совпадении сохранённых фактов или если это документ для ручного отслеживания.", "Qoida sizga tegishli bo‘lmasa ham ko‘rish mumkin. NextDue uni faqat saqlangan ma’lumotlar mos kelsa yoki qo‘lda kuzatiladigan hujjat bo‘lsa qo‘shadi.")}</p></div></aside>`;
+  const trackedKeys = new Set(state.items.filter((item) => item.catalogId).map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))));
+  const matched = matchCatalog(catalogGraph(state));
+  const related = [...new Set([...(state.citizenships || []).map((record) => record.country), ...(state.countryContexts || []).map((record) => record.country), ...(state.assetJurisdictions || []).map((record) => record.country)])];
+  const normalizedQuery = ruleFilters.query.trim().toLocaleLowerCase(state.locale);
+  const filtered = REGISTRY_RULES.filter((rule) => {
+    if (ruleFilters.country !== "all" && rule.destination_country !== ruleFilters.country) return false;
+    if (ruleFilters.tier !== "all" && rule.runtime_tier !== ruleFilters.tier) return false;
+    if (!normalizedQuery) return true;
+    return [rule.requirement_name, rule.notes, rule.route_code, rule.requirement_type].filter(Boolean).join(" ").toLocaleLowerCase(state.locale).includes(normalizedQuery);
+  }).sort((a, b) => {
+    const relatedOrder = Number(related.includes(b.destination_country)) - Number(related.includes(a.destination_country));
+    if (relatedOrder) return relatedOrder;
+    const tierOrder = { ready: 0, confirm: 1, research: 2 };
+    return tierOrder[a.runtime_tier] - tierOrder[b.runtime_tier]
+      || countryName(a.destination_country).localeCompare(countryName(b.destination_country), state.locale)
+      || a.requirement_name.localeCompare(b.requirement_name, state.locale);
+  });
+  const visible = filtered.slice(0, ruleFilters.limit);
+  const countryOptions = REGISTRY_COUNTRIES.slice().sort((a, b) => countryName(a.code).localeCompare(countryName(b.code), state.locale)).map((country) => `<option value="${country.code}" ${ruleFilters.country === country.code ? "selected" : ""}>${country.flag} ${escapeHTML(countryName(country.code))} · ${REGISTRY_RULES.filter((rule) => rule.destination_country === country.code).length}</option>`).join("");
+  const relatedButtons = related.map((country) => `<button class="${ruleFilters.country === country ? "active" : ""}" data-country-filter="${country}">${flagForCountry(country)} ${countryName(country)}</button>`).join("");
+  const more = visible.length < filtered.length ? `<button class="secondary-button full catalog-load-more" data-action="show-more-rules">${tx(`Show ${Math.min(60, filtered.length - visible.length)} more`, `Показать ещё ${Math.min(60, filtered.length - visible.length)}`, `Yana ${Math.min(60, filtered.length - visible.length)} ta ko‘rsatish`)}</button>` : "";
+  return `${viewHeader(tx("42-country registry", "Реестр по 42 странам", "42 mamlakat reyestri"), tx("Rules library", "Библиотека правил", "Qoidalar kutubxonasi"), tx("Verified rules, route mappings, and research guidance are shown separately. Related countries come first.", "Проверенные правила, карты оснований и исследовательские ориентиры разделены. Связанные страны идут первыми.", "Tekshirilgan qoidalar, yo‘nalish xaritalari va tadqiqot ko‘rsatmalari alohida. Tegishli mamlakatlar birinchi."), "none")}<aside class="catalog-scope-note">${icon("info", 18)}<p>${tx("Only verified exact rules can create a trackable candidate automatically. Partial mappings request confirmation; research guidance never creates a deadline.", "Автоматически отслеживаемый кандидат создаётся только из проверенного точного правила. Частичные карты требуют подтверждения; исследовательские ориентиры не создают сроки.", "Faqat tekshirilgan aniq qoida avtomatik kuzatiladigan nomzod yaratadi. Qisman xaritalar tasdiq talab qiladi; tadqiqot ko‘rsatmasi muddat yaratmaydi.")}</p></aside><div class="catalog-summary"><strong>${visible.length} ${tx("of", "из", "dan")} ${filtered.length} ${tx("matching records", "подходящих записей", "mos yozuv")}</strong><span>${REGISTRY_COUNTS.rules} ${tx("registry records", "записей реестра", "reyestr yozuvi")} · ${REGISTRY_COUNTS.sources} ${tx("official sources", "официальных источников", "rasmiy manba")}</span></div><div class="rules-tier-tabs">${[["all", tx("All", "Все", "Barchasi"), REGISTRY_COUNTS.rules], ["ready", tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor"), REGISTRY_COUNTS.ready], ["confirm", tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak"), REGISTRY_COUNTS.confirm], ["research", tx("Research guidance", "Ориентиры", "Tadqiqot yo‘riqnomasi"), REGISTRY_COUNTS.research]].map(([tier, label, count]) => `<button class="${ruleFilters.tier === tier ? "active" : ""}" data-rule-tier="${tier}">${label} · ${count}</button>`).join("")}</div><div class="rules-filter-bar"><label><span>${tx("Search", "Поиск", "Qidirish")}</span><input type="search" id="rule-search" value="${escapeHTML(ruleFilters.query)}" placeholder="${tx("Document, route, tax, vehicle…", "Документ, основание, налог, транспорт…", "Hujjat, asos, soliq, transport…")}"></label><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select id="rule-country"><option value="all">${tx("All 42 countries", "Все 42 страны", "Barcha 42 mamlakat")}</option>${countryOptions}</select></label></div>${relatedButtons ? `<div class="related-country-buttons"><span>${tx("Related", "Связанные", "Tegishli")}</span><button class="${ruleFilters.country === "all" ? "active" : ""}" data-country-filter="all">${tx("All", "Все", "Barchasi")}</button>${relatedButtons}</div>` : ""}<div class="catalog-grid">${visible.map((rule) => registryRuleCard(rule, trackedKeys, matched)).join("")}</div>${more}${!filtered.length ? `<div class="mini-empty"><p>${tx("No registry records match these filters.", "По этим фильтрам записей нет.", "Bu filtrlarga mos yozuv yo‘q.")}</p></div>` : ""}`;
 }
 
-function catalogCard(entry, tracked, matched = false) {
-  const confidenceLabel = entry.confidence === "high" ? tx("High confidence", "Высокая уверенность", "Yuqori ishonch") : entry.confidence === "medium-high" ? tx("Medium-high confidence", "Уверенность выше средней", "O‘rtachadan yuqori ishonch") : entry.confidence;
-  const riskLabel = entry.risk === "high_applicability" ? tx("Check applicability", "Проверьте применимость", "Mosligini tekshiring") : confidenceLabel;
-  const eligible = matched || entry.match?.kind === "manual";
-  const disabled = tracked || !eligible;
-  const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : eligible ? tx("Add to plan", "Добавить в план", "Rejaga qo‘shish") : tx("Does not match profile", "Не подходит профилю", "Profilga mos emas");
-  return `<article class="catalog-card ${matched ? "matched" : ""}" data-catalog-country="${entry.country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(entry.country)} ${countryName(entry.country)}</span>${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : `<span class="confidence ${entry.risk === "high_applicability" ? "risk" : ""}">${riskLabel}</span>`}</div><h2>${escapeHTML(localized(entry.title, state.locale))}</h2><p>${escapeHTML(localized(entry.summary, state.locale))}</p><dl><div><dt>${tx("For", "Для кого", "Kim uchun")}</dt><dd>${escapeHTML(localized(entry.audience, state.locale))}</dd></div><div><dt>${t(state.locale, "lastReviewed")}</dt><dd>${CATALOG_REVIEWED_AT}</dd></div></dl><div class="catalog-card-actions"><a href="${entry.source.url}" target="_blank" rel="noopener">${icon("external", 15)} ${t(state.locale, "officialSource")}</a><button class="${tracked || !eligible ? "secondary-button" : "primary-button"} compact" data-action="add-catalog" data-id="${entry.id}" ${disabled ? "disabled" : ""}>${buttonLabel}</button></div></article>`;
+function catalogTargetValue(target) { return `${target.subjectId || ""}|${target.assetId || ""}`; }
+function catalogTargetLabel(target) {
+  if (target.assetId) return `${assetName(target.assetId)} · ${personName(target.subjectId)}`;
+  return personName(target.subjectId);
+}
+
+function registryRuleCard(rule, trackedKeys, matchedCatalog) {
+  const catalogEntry = CATALOG_BY_REGISTRY_ID.get(rule.rule_id);
+  const catalogMatches = catalogEntry ? matchedCatalog.filter((match) => match.entry.id === catalogEntry.id) : [];
+  const targets = catalogEntry?.match?.kind === "manual" && catalogEntry.subjectType === "person"
+    ? state.people.map((person) => ({ entry: catalogEntry, subjectId: person.id, assetId: null }))
+    : catalogMatches;
+  const availableTargets = catalogEntry ? targets.filter((target) => !trackedKeys.has(catalogItemKey(catalogEntry.id, target.subjectId, target.assetId))) : [];
+  const matched = catalogMatches.length > 0;
+  const tracked = targets.length > 0 && availableTargets.length === 0;
+  const eligible = availableTargets.length > 0;
+  const title = catalogEntry ? localized(catalogEntry.title, state.locale) : rule.requirement_name;
+  const summary = catalogEntry ? localized(catalogEntry.summary, state.locale) : rule.notes || rule.exceptions?.[0] || tx("Open the official sources and confirm the exact applicability facts.", "Откройте официальные источники и подтвердите точные условия применимости.", "Rasmiy manbalarni ochib aniq shartlarni tasdiqlang.");
+  const tierLabel = rule.runtime_tier === "ready" ? tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor") : rule.runtime_tier === "confirm" ? tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak") : tx("Research guidance", "Ориентир для исследования", "Tadqiqot yo‘riqnomasi");
+  const sources = (rule.source_ids || []).map((sourceId) => REGISTRY_SOURCE_BY_ID.get(sourceId)).filter(Boolean);
+  const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : eligible ? tx("Add to plan", "Добавить в план", "Rejaga qo‘shish") : rule.runtime_tier === "ready" ? tx("Add matching facts first", "Сначала добавьте подходящие факты", "Avval mos ma’lumotlarni qo‘shing") : tierLabel;
+  const targetControl = availableTargets.length > 1 ? `<label class="catalog-target"><span>${tx("Add for", "Добавить для", "Kim uchun")}</span><select data-catalog-target="${catalogEntry.id}">${availableTargets.map((target) => `<option value="${escapeHTML(catalogTargetValue(target))}">${escapeHTML(catalogTargetLabel(target))}</option>`).join("")}</select></label>` : "";
+  const targetValue = availableTargets.length === 1 ? catalogTargetValue(availableTargets[0]) : "";
+  return `<article class="catalog-card rule-tier-${rule.runtime_tier} ${matched ? "matched" : ""}" data-catalog-country="${rule.destination_country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(rule.destination_country)} ${countryName(rule.destination_country)}</span>${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : `<span class="confidence tier-${rule.runtime_tier}">${tierLabel}</span>`}</div><h2>${escapeHTML(title)}</h2><p>${escapeHTML(summary)}</p><dl><div><dt>${tx("Type", "Тип", "Turi")}</dt><dd>${escapeHTML(rule.rule_specificity.replaceAll("_", " "))}</dd></div><div><dt>${t(state.locale, "lastReviewed")}</dt><dd>${rule.last_verified}</dd></div></dl>${targetControl}<div class="catalog-card-actions"><div class="source-links">${sources.slice(0, 2).map((source) => `<a href="${escapeHTML(source.url)}" target="_blank" rel="noopener">${icon("external", 15)} ${escapeHTML(source.authority)}</a>`).join("")}</div>${catalogEntry ? `<button class="${eligible && !tracked ? "primary-button" : "secondary-button"} compact" data-action="add-catalog" data-id="${catalogEntry.id}" data-target="${escapeHTML(targetValue)}" ${tracked || !eligible ? "disabled" : ""}>${buttonLabel}</button>` : `<span class="rule-permission">${buttonLabel}</span>`}</div></article>`;
 }
 
 function renderSettings() {
-  return `${viewHeader(tx("Control centre", "Центр управления", "Boshqaruv markazi"), t(state.locale, "settings"), tx("Language, calendar behavior, portability, and the external SaaS path.", "Язык, календарь, переносимость и внешняя SaaS-версия.", "Til, kalendar va tashqi SaaS yo‘li."), "none")}${TEST_MODE_RESET_ON_LOAD ? `<aside class="test-mode-banner">${icon("info", 19)}<div><strong>${t(state.locale, "testMode")}</strong><p>${t(state.locale, "testModeExplanation")}</p></div></aside>` : ""}<div class="settings-grid"><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("globe", 20)}</span><div><h2>${t(state.locale, "interfaceLanguage")}</h2><p>English · Русский · O‘zbekcha</p></div></div><select id="language-select">${SUPPORTED_LOCALES.map((locale) => `<option value="${locale.code}" ${state.locale === locale.code ? "selected" : ""}>${locale.label}</option>`).join("")}</select></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("calendar", 20)}</span><div><h2>${t(state.locale, "exportCalendar")}</h2><p>${getCalendarEventCount(state.items, state.settings)} ${tx("events over 24 months", "событий на 24 месяца", "24 oylik tadbirlar")}</p></div></div><label class="toggle-row"><span><strong>${tx("Privacy-safe titles", "Безопасные названия", "Maxfiy nomlar")}</strong><small>${tx("Generic event names by default.", "Общие названия по умолчанию.", "Standart umumiy nomlar.")}</small></span><input type="checkbox" data-setting="privacySafeTitles" ${state.settings.privacySafeTitles ? "checked" : ""}><i></i></label><button class="primary-button full" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></section><section class="settings-card saas-card"><div class="settings-title"><span class="settings-icon">${icon("cloud", 20)}</span><div><h2>${t(state.locale, "externalSaas")}</h2><p>Next.js · Auth.js · PostgreSQL · Docker</p></div></div><p>${tx("Prepared for Google sign-in and generic OIDC on your own domain. Sign-in and calendar consent remain separate.", "Подготовлено для входа через Google и generic OIDC на вашем домене. Вход и доступ к календарю разделены.", "Google va OIDC orqali o‘z domeningizda kirish uchun tayyor.")}</p><button class="secondary-button full" data-action="saas-info">${icon("external", 16)} ${tx("View deployment plan", "План развёртывания", "Joylashtirish rejasi")}</button></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("database", 20)}</span><div><h2>${tx("Your data", "Ваши данные", "Ma’lumotlaringiz")}</h2><p>${TEST_MODE_RESET_ON_LOAD ? t(state.locale, "clearedOnReload") : t(state.locale, "savedHere")}</p></div></div><div class="data-actions"><button class="secondary-button full" data-action="backup-data">${icon("download", 16)} JSON</button><button class="secondary-button full" data-action="restore-data">${icon("upload", 16)} ${tx("Restore", "Восстановить", "Tiklash")}</button></div></section></div>`;
+  return `${viewHeader(tx("Your preferences", "Ваши настройки", "Sozlamalaringiz"), t(state.locale, "settings"), tx("Language, calendar privacy, and portable backups.", "Язык, приватность календаря и переносимые резервные копии.", "Til, kalendar maxfiyligi va ko‘chma zaxira nusxalari."), "none")}<div class="settings-grid"><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("globe", 20)}</span><div><h2>${t(state.locale, "interfaceLanguage")}</h2><p>English · Русский · O‘zbekcha</p></div></div><select id="language-select">${SUPPORTED_LOCALES.map((locale) => `<option value="${locale.code}" ${state.locale === locale.code ? "selected" : ""}>${locale.label}</option>`).join("")}</select></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("calendar", 20)}</span><div><h2>${t(state.locale, "exportCalendar")}</h2><p>${getCalendarEventCount(state.items, state.settings)} ${tx("events over 24 months", "событий на 24 месяца", "24 oylik tadbirlar")}</p></div></div><label class="toggle-row"><span><strong>${tx("Privacy-safe titles", "Безопасные названия", "Maxfiy nomlar")}</strong><small>${tx("Use generic event names in exported calendars.", "Использовать общие названия в экспортированном календаре.", "Eksport qilingan kalendarda umumiy nomlardan foydalanish.")}</small></span><input type="checkbox" data-setting="privacySafeTitles" ${state.settings.privacySafeTitles ? "checked" : ""}><i></i></label><button class="primary-button full" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("database", 20)}</span><div><h2>${tx("Portable backup", "Переносимая копия", "Ko‘chma zaxira")}</h2><p>${tx("Export or restore your household graph as JSON.", "Экспортируйте или восстановите граф семьи в JSON.", "Uy xo‘jaligi grafigini JSON sifatida eksport yoki tiklang.")}</p></div></div><div class="data-actions"><button class="secondary-button full" data-action="backup-data">${icon("download", 16)} ${tx("Export JSON", "Экспорт JSON", "JSON eksport")}</button><button class="secondary-button full" data-action="restore-data">${icon("upload", 16)} ${tx("Restore", "Восстановить", "Tiklash")}</button></div></section></div>`;
 }
 
 function openItemDialog(item = null) {
   const dialog = document.querySelector("#item-dialog"); const form = document.querySelector("#item-form"); form.reset();
   form.elements.id.value = item?.id || ""; form.elements.title.value = item?.title || ""; form.elements.category.value = item?.category || "identity";
   form.elements.kind.value = item?.schedule?.kind || "expiry"; form.elements.date.value = item?.schedule?.date || ""; form.elements.frequency.value = item?.schedule?.frequency || "yearly";
-  form.elements.reminderInput.value = item?.reminderInput || "180/90/30/7/1/0";
+  form.elements.reminderInput.value = item?.reminderInput || "";
   form.elements.country.innerHTML = countryOptions(item?.country || state.profile.activeCountries?.[0] || "RU", false);
-  form.elements.subjectId.innerHTML = state.people.map((person) => `<option value="${person.id}" ${item?.subjectId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("");
-  form.elements.assetId.innerHTML = `<option value="">${tx("No linked possession", "Без привязки к имуществу", "Mulkka bog‘lanmagan")}</option>${state.assets.map((asset) => `<option value="${asset.id}" ${item?.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${countryName(asset.country)}</option>`).join("")}`;
+  form.elements.subjectType.value = item?.subjectType || (state.people.length ? "person" : "household");
+  form.elements.personId.innerHTML = state.people.map((person) => `<option value="${person.id}" ${item?.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("");
+  form.elements.assetId.innerHTML = state.assets.map((asset) => `<option value="${asset.id}" ${item?.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${countryName(assetCountry(asset))}</option>`).join("");
+  form.elements.responsiblePersonId.innerHTML = `<option value="">${tx("Not assigned", "Не назначен", "Belgilanmagan")}</option>${state.people.map((person) => `<option value="${person.id}" ${item?.responsiblePersonId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("")}`;
   form.elements.notes.value = item?.notes || "";
+  const locked = item?.provenance === "catalog";
+  document.querySelector("#item-provenance").hidden = !locked;
+  document.querySelector("#item-applicability-field").hidden = !locked;
+  form.elements.applicability.disabled = !locked;
+  form.elements.applicability.value = item?.applicability || (locked ? "candidate" : "confirmed");
+  for (const name of ["title", "category", "country", "subjectType", "personId", "assetId"]) form.elements[name].disabled = locked;
   dialog.querySelector("#item-dialog-title").textContent = item ? tx("Edit obligation", "Изменить обязанность", "Majburiyatni o‘zgartirish") : t(state.locale, "addDeadline");
-  dialog.querySelector("#delete-item").hidden = !item; updateScheduleFields(); updateReminderPreview(); dialog.showModal();
+  dialog.querySelector("#delete-item").hidden = !item; updateItemSubjectFields(); updateScheduleFields(); updateReminderPreview(); dialog.showModal();
 }
 
-function updateScheduleFields() { const form = document.querySelector("#item-form"); form.querySelector("#frequency-field").hidden = form.elements.kind.value !== "recurring"; }
+function updateItemSubjectFields() {
+  const form = document.querySelector("#item-form"); const subjectType = form.elements.subjectType.value;
+  document.querySelector("#item-person-field").hidden = subjectType !== "person";
+  document.querySelector("#item-asset-field").hidden = subjectType !== "asset";
+  document.querySelector("#item-responsible-field").hidden = state.people.length < 2;
+}
+function updateScheduleFields() {
+  const form = document.querySelector("#item-form");
+  form.querySelector("#frequency-field").hidden = form.elements.kind.value !== "recurring";
+  document.querySelector("#item-reminder-fields").hidden = !parseISODate(form.elements.date.value);
+}
 function updateReminderPreview() {
   const form = document.querySelector("#item-form"); const output = document.querySelector("#reminder-preview");
   try {
@@ -608,21 +700,72 @@ function updateReminderPreview() {
   } catch (error) { output.className = "reminder-preview invalid"; output.textContent = validationMessage(error.message); }
 }
 
+function assetJurisdictionRoleForType(type) { return type === "vehicle" ? "registration" : type === "business" ? "incorporation" : "location"; }
+
+function updateAssetTypeFields() {
+  const form = document.querySelector("#asset-form"); const type = form.elements.type.value;
+  for (const field of document.querySelectorAll("#asset-type-fields [data-asset-types]")) field.hidden = !field.dataset.assetTypes.split(" ").includes(type);
+  document.querySelector("#asset-country-label").textContent = type === "vehicle" ? tx("Registered in", "Зарегистрировано в", "Ro‘yxatdan o‘tgan") : type === "business" ? tx("Established in", "Зарегистрирован в", "Tashkil etilgan") : tx("Located in", "Находится в", "Joylashgan");
+}
+
+function addAssetRoleRow(record = {}) {
+  const list = document.querySelector("#asset-role-list");
+  const row = document.createElement("div"); row.className = "form-grid role-row";
+  row.innerHTML = `<label><span>${tx("Person", "Человек", "Shaxs")}</span><select name="rolePersonId">${state.people.map((person) => `<option value="${person.id}" ${record.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("")}</select></label><label><span>${tx("Role", "Роль", "Rol")}</span><select name="roleType">${ASSET_PERSON_ROLES.map((role) => `<option value="${role}" ${record.role === role ? "selected" : ""}>${assetRoleLabel(role)}</option>`).join("")}</select></label><label class="asset-share-field"><span>${tx("Share %", "Доля %", "Ulush %")}</span><input type="number" name="roleShare" min="0.01" max="100" step="0.01" value="${escapeHTML(record.sharePercent || "")}"></label><button type="button" class="icon-button row-remove" data-action="remove-dynamic-row" aria-label="${tx("Remove role", "Удалить роль", "Rolni olib tashlash")}">${icon("close", 16)}</button>`;
+  list.append(row);
+  updateAssetRoleRow(row);
+}
+
+function updateAssetRoleRow(row) {
+  const role = row.querySelector('[name="roleType"]')?.value;
+  const shareField = row.querySelector(".asset-share-field");
+  if (shareField) shareField.hidden = !["owner", "co_owner"].includes(role);
+}
+
+function addAssetJurisdictionRow(record = {}) {
+  const list = document.querySelector("#asset-jurisdiction-list");
+  const row = document.createElement("div"); row.className = "form-grid role-row";
+  row.innerHTML = `<label><span>${tx("Country", "Страна", "Mamlakat")}</span><select name="jurisdictionCountry">${countryOptions(record.country || "", false)}</select></label><label><span>${tx("Connection", "Связь", "Bog‘lanish")}</span><select name="jurisdictionRole">${[["location", tx("Location", "Местонахождение", "Joylashuv")], ["registration", tx("Registration", "Регистрация", "Ro‘yxat")], ["tax", tx("Tax", "Налог", "Soliq")], ["use", tx("Use", "Использование", "Foydalanish")], ["ownership", tx("Ownership", "Собственность", "Egalik")], ["incorporation", tx("Incorporation", "Регистрация бизнеса", "Biznes ro‘yxati")], ["other", tx("Other", "Другое", "Boshqa")]].map(([role, label]) => `<option value="${role}" ${record.role === role ? "selected" : ""}>${label}</option>`).join("")}</select></label><button type="button" class="icon-button row-remove" data-action="remove-dynamic-row" aria-label="${tx("Remove country", "Удалить страну", "Mamlakatni olib tashlash")}">${icon("close", 16)}</button>`;
+  list.append(row);
+}
+
+function personFormCitizenships() {
+  return [...document.querySelectorAll('#person-citizenship-list [name="citizenshipCountry"]')].map((input) => input.value).filter(Boolean);
+}
+
+function renderPersonCitizenshipRows(countries = personFormCitizenships()) {
+  const list = document.querySelector("#person-citizenship-list"); if (!list) return;
+  const uniqueCountries = [...new Set(countries.filter(Boolean))];
+  list.innerHTML = uniqueCountries.length ? uniqueCountries.map((country, index) => `<div class="country-chip-edit"><input type="hidden" name="citizenshipCountry" value="${escapeHTML(country)}">${countryPickerButton(country, `person-citizenship-${index}`, { exclude: uniqueCountries.filter((_, itemIndex) => itemIndex !== index) })}<button type="button" class="icon-button" data-action="remove-person-citizenship" data-index="${index}" aria-label="${tx("Remove citizenship", "Удалить гражданство", "Fuqarolikni olib tashlash")}">${icon("close", 16)}</button></div>`).join("") : `<p class="form-note">${tx("No citizenship added yet.", "Гражданство пока не добавлено.", "Hali fuqarolik qo‘shilmagan.")}</p>`;
+}
+
 function openAssetDialog(asset = null) {
-  const form = document.querySelector("#asset-form"); form.reset(); form.elements.id.value = asset?.id || ""; form.elements.type.value = asset?.type || "property"; form.elements.label.value = asset?.label || "";
-  form.elements.details.value = asset?.details || "";
-  form.elements.country.value = asset?.country || state.profile.activeCountries?.[0] || "";
+  const form = document.querySelector("#asset-form"); form.reset(); form.elements.id.value = asset?.id || ""; form.elements.type.value = asset?.type || ""; form.elements.label.value = asset?.label || "";
+  form.elements.vehicleIdentifierSuffix.value = asset?.facts?.vehicleIdentifierSuffix || "";
+  form.elements.vehicleClass.value = asset?.facts?.vehicleClass || "";
+  form.elements.vehicleUse.value = asset?.facts?.vehicleUse || "";
+  form.elements.vehicleFirstRegisteredOn.value = asset?.facts?.vehicleFirstRegisteredOn || "";
+  form.elements.vehiclePlateStatus.value = asset?.facts?.vehiclePlateStatus || "";
+  form.elements.vehicleImportStatus.value = asset?.facts?.vehicleImportStatus || "";
+  form.elements.propertyUse.value = asset?.facts?.propertyUse || "";
+  form.elements.businessForm.value = asset?.facts?.businessForm || "";
+  form.elements.country.value = asset ? assetCountry(asset) : state.profile.activeCountries?.[0] || "";
   updateCountryPickerButton(document.querySelector("#asset-country-picker"), form.elements.country.value);
-  form.elements.ownerId.innerHTML = state.people.map((person) => `<option value="${person.id}" ${asset?.ownerId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("");
+  const roleList = document.querySelector("#asset-role-list"); roleList.innerHTML = "";
+  const roles = asset ? assetRolesFor(state, asset.id) : state.people[0] ? [{ personId: state.people[0].id, role: "owner" }] : [];
+  roles.forEach(addAssetRoleRow);
+  const jurisdictionList = document.querySelector("#asset-jurisdiction-list"); jurisdictionList.innerHTML = "";
+  if (asset) (state.assetJurisdictions || []).filter((record) => record.assetId === asset.id && !record.isPrimary).forEach(addAssetJurisdictionRow);
+  updateAssetTypeFields();
   document.querySelector("#asset-dialog-title").textContent = asset ? tx("Edit possession", "Изменить имущество", "Mulkni o‘zgartirish") : t(state.locale, "addAsset"); document.querySelector("#delete-asset").hidden = !asset; document.querySelector("#asset-dialog").showModal();
 }
 
 function openPersonDialog(person = null) {
-  const form = document.querySelector("#person-form"); const primaryRelation = person?.jurisdictions?.find((item) => item.type === "residence") || person?.jurisdictions?.[0]; form.reset(); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
-  form.elements.citizenship.value = person?.citizenships?.[0] || "";
-  form.elements.residence.value = person?.residenceCountry || primaryRelation?.country || person?.citizenships?.[0] || "";
-  updateCountryPickerButton(document.querySelector("#person-citizenship-picker"), form.elements.citizenship.value);
-  const residencePicker = document.querySelector("#person-residence-picker"); residencePicker.dataset.countryExclude = form.elements.citizenship.value || ""; updateCountryPickerButton(residencePicker, form.elements.residence.value);
+  const form = document.querySelector("#person-form"); const primaryRelation = person ? personContexts(person.id).find((item) => item.contextType === "lives_now") || personContexts(person.id)[0] : null; form.reset(); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
+  const citizenships = person ? personCitizenships(person.id) : [];
+  renderPersonCitizenshipRows(citizenships);
+  form.elements.residence.value = primaryRelation?.country || "";
+  const residencePicker = document.querySelector("#person-residence-picker"); residencePicker.dataset.countryExclude = ""; updateCountryPickerButton(residencePicker, form.elements.residence.value);
   document.querySelector("#person-dialog-title").textContent = person ? tx("Edit person", "Изменить человека", "Shaxsni o‘zgartirish") : t(state.locale, "addPerson"); document.querySelector("#person-dialog").showModal();
 }
 
@@ -631,57 +774,152 @@ function updateCountryRelationFields() {
   const isCitizenship = form.elements.recordKind.value === "citizenship";
   document.querySelector("#country-relation-fields").hidden = isCitizenship;
   for (const input of document.querySelectorAll("#country-relation-fields input, #country-relation-fields select, #country-relation-fields textarea")) input.disabled = isCitizenship;
+  updateCountryContextFields();
+}
+
+function updateCountryContextFields() {
+  const form = document.querySelector("#country-form"); if (!form) return;
+  const isCitizenship = form.elements.recordKind.value === "citizenship";
+  const purposeRelevant = ["lives_now", "physical_stay", "planned_trip", "planned_move"].includes(form.elements.contextType.value);
+  const hasCountry = Boolean(form.elements.country.value);
+  document.querySelector("#context-purpose-field").hidden = isCitizenship || !purposeRelevant || !hasCountry;
+  form.elements.purpose.disabled = isCitizenship || !purposeRelevant || !hasCountry;
+  if (!purposeRelevant) form.elements.purpose.value = "unknown";
   updateCountryRecordRouteOptions();
+}
+
+function updateCountryPurposeOptions() {
+  const form = document.querySelector("#country-form"); if (!form?.elements?.purpose) return;
+  const person = state.people.find((entry) => entry.id === form.elements.personId.value);
+  const citizenships = person ? personCitizenships(person.id) : [];
+  const current = form.elements.purpose.value || "unknown";
+  const selected = current !== "unknown" && routeChoices(form.elements.country.value, current, citizenships).every((route) => route === "not_sure") ? "unknown" : current;
+  form.elements.purpose.innerHTML = purposeOptions(selected, true, form.elements.country.value, citizenships);
+  form.elements.purpose.value = [...form.elements.purpose.options].some((option) => option.value === selected) ? selected : "unknown";
+  updateCountryContextFields();
 }
 
 function updateIssuedStatusFields() {
   const form = document.querySelector("#country-form");
   const fields = document.querySelector("#issued-status-fields");
-  fields.hidden = !form.elements.hasDocument.checked;
+  const availability = document.querySelector("#has-issued-document-field");
+  fields.hidden = availability.hidden || !form.elements.hasDocument.checked;
   for (const input of fields.querySelectorAll("input")) input.disabled = fields.hidden;
 }
 
 function updateCountryRecordRouteOptions() {
   const form = document.querySelector("#country-form"); if (!form?.elements?.route) return;
   const person = state.people.find((entry) => entry.id === form.elements.personId.value);
-  const choices = routeChoices(form.elements.country.value, form.elements.purpose.value, person?.citizenships || []);
-  const selected = choices.includes(form.elements.route.value) ? form.elements.route.value : choices[0];
-  form.elements.route.innerHTML = routeOptions(form.elements.country.value, form.elements.purpose.value, person?.citizenships || [], selected);
+  const citizenships = person ? personCitizenships(person.id) : [];
+  const choices = routeChoices(form.elements.country.value, form.elements.purpose.value, citizenships);
+  const selected = choices.includes(form.elements.route.value) ? form.elements.route.value : "not_sure";
+  form.elements.route.innerHTML = routeOptions(form.elements.country.value, form.elements.purpose.value, citizenships, selected);
+  const isCitizen = citizenships.includes(form.elements.country.value);
+  const purposeRelevant = ["lives_now", "physical_stay", "planned_trip", "planned_move"].includes(form.elements.contextType.value);
+  document.querySelector("#route-field").hidden = isCitizen || !purposeRelevant || form.elements.purpose.value === "unknown";
+  form.elements.route.disabled = document.querySelector("#route-field").hidden;
+  if (isCitizen) form.elements.route.innerHTML = `<option value="citizen" selected>${escapeHTML(routeLabel("citizen"))}</option>`;
+  updateRoutePartyFields();
+}
+
+function updateRoutePartyFields() {
+  const form = document.querySelector("#country-form"); const purpose = form.elements.purpose.value; const route = form.elements.route.value;
+  const routeHidden = document.querySelector("#route-field").hidden;
+  document.querySelector("#route-stage-field").hidden = routeHidden || !route || route === "not_sure" || route === "citizen";
+  form.elements.routeStage.disabled = document.querySelector("#route-stage-field").hidden;
+  for (const field of document.querySelectorAll("#route-party-fields [data-route-party]")) {
+    const party = field.dataset.routeParty;
+    field.hidden = routeHidden || route === "not_sure" || !((party === "employer" && purpose === "work") || (party === "institution" && purpose === "study") || (party === "sponsor" && purpose === "family") || (party === "principal" && purpose === "family" && state.people.length > 1));
+    for (const input of field.querySelectorAll("input, select")) input.disabled = field.hidden;
+  }
+  const relationshipField = document.querySelector("#principal-relationship-field");
+  const principalField = document.querySelector('[data-route-party="principal"]');
+  relationshipField.hidden = principalField.hidden || !form.elements.principalPersonId.value;
+  form.elements.relationshipType.disabled = relationshipField.hidden;
+  const documentField = document.querySelector("#has-issued-document-field");
+  documentField.hidden = routeHidden || !route || route === "not_sure" || route === "citizen";
+  form.elements.hasDocument.disabled = documentField.hidden;
+  if (documentField.hidden) form.elements.hasDocument.checked = false;
+  updateIssuedStatusFields();
 }
 
 function openCountryDialog(personId, relationId = "", citizenshipCountry = "") {
   const person = state.people.find((entry) => entry.id === personId); if (!person) return;
-  const relation = relationId ? person.jurisdictions?.find((entry) => entry.id === relationId) : null;
+  const relation = relationId ? state.countryContexts.find((entry) => entry.id === relationId) : null;
+  const route = relation ? routeForContext(state, relation.id) : null;
   const form = document.querySelector("#country-form"); form.reset();
   form.elements.personId.value = personId; form.elements.relationId.value = relation?.id || ""; form.elements.originalCountry.value = citizenshipCountry || "";
   form.elements.recordKind.value = citizenshipCountry ? "citizenship" : "relationship";
   form.elements.country.value = citizenshipCountry || relation?.country || "";
-  form.elements.purpose.innerHTML = purposeOptions(relation?.purpose || "visit", false); form.elements.purpose.value = relation?.purpose || "visit";
-  form.elements.route.innerHTML = routeOptions(form.elements.country.value, form.elements.purpose.value, person.citizenships || [], relation?.route || relation?.basis || "not_sure");
+  form.elements.contextType.value = relation?.contextType || "planned_move";
+  form.elements.purpose.innerHTML = purposeOptions(relation?.purpose || "unknown", true, form.elements.country.value, personCitizenships(person.id)); form.elements.purpose.value = relation?.purpose || "unknown";
+  form.elements.route.innerHTML = routeOptions(form.elements.country.value, form.elements.purpose.value, personCitizenships(person.id), route?.routeCode || "not_sure");
+  form.elements.routeStage.value = route?.stage || "exploring";
+  form.elements.principalPersonId.innerHTML = `<option value="">${tx("Not selected", "Не выбран", "Tanlanmagan")}</option>${state.people.filter((entry) => entry.id !== personId).map((entry) => `<option value="${entry.id}">${escapeHTML(personName(entry.id))}</option>`).join("")}`;
+  form.elements.principalPersonId.value = route?.principalPersonId || "";
+  const familyRelationship = state.personRelationships.find((record) => record.fromPersonId === personId && record.toPersonId === route?.principalPersonId && !record.endsOn);
+  form.elements.relationshipType.value = familyRelationship?.relationshipType || "other";
   form.elements.startsOn.value = relation?.startsOn || ""; form.elements.endsOn.value = relation?.endsOn || "";
-  const statusDocument = relation?.statusDocument; form.elements.hasDocument.checked = Boolean(statusDocument || relation?.statusLabel || relation?.validUntil);
-  form.elements.statusLabel.value = statusDocument?.label || relation?.statusLabel || ""; form.elements.printedExpiry.value = statusDocument?.printedExpiry || relation?.validUntil || ""; form.elements.note.value = relation?.note || "";
-  const picker = document.querySelector("#country-record-picker"); picker.dataset.countryExclude = (person.citizenships || []).filter((country) => country !== citizenshipCountry).join(","); updateCountryPickerButton(picker, form.elements.country.value);
+  const statusDocument = route ? state.issuedDocuments.find((document) => document.legalRouteId === route.id) : null; form.elements.hasDocument.checked = Boolean(statusDocument);
+  form.elements.statusLabel.value = statusDocument?.title || ""; form.elements.documentValidFrom.value = statusDocument?.validFrom || ""; form.elements.printedExpiry.value = statusDocument?.validUntil || ""; form.elements.note.value = relation?.note || "";
+  for (const party of state.routeParties.filter((record) => record.legalRouteId === route?.id)) {
+    if (party.partyType === "employer") form.elements.employerLabel.value = party.label;
+    if (party.partyType === "institution") form.elements.institutionLabel.value = party.label;
+    if (party.partyType === "sponsor") form.elements.sponsorLabel.value = party.label;
+  }
+  const picker = document.querySelector("#country-record-picker"); picker.dataset.countryExclude = personCitizenships(person.id).filter((country) => country !== citizenshipCountry).join(","); updateCountryPickerButton(picker, form.elements.country.value);
   const editing = Boolean(relation || citizenshipCountry); document.querySelector("#country-dialog-title").textContent = citizenshipCountry ? tx("Edit citizenship", "Изменить гражданство", "Fuqarolikni tahrirlash") : relation ? tx("Edit country context", "Изменить контекст страны", "Mamlakat kontekstini tahrirlash") : tx("Add another country context", "Добавить ещё один контекст страны", "Yana mamlakat kontekstini qo‘shish");
   document.querySelector("#delete-country-relation").hidden = !editing; updateCountryRelationFields(); updateIssuedStatusFields(); document.querySelector("#country-dialog").showModal();
 }
 
 async function saveItem() {
   const form = document.querySelector("#item-form"); const data = new FormData(form); let offsets;
-  try { offsets = parseReminderSequence(data.get("reminderInput")); } catch (error) { announce(validationMessage(error.message)); return; }
-  const id = data.get("id"); const existing = state.items.find((item) => item.id === id); const title = String(data.get("title") || "").trim();
+  const reminderInput = String(data.get("reminderInput") || "").trim();
+  const confirmedDate = String(data.get("date") || "");
+  try { offsets = confirmedDate ? parseReminderSequence(reminderInput) : []; } catch (error) { announce(validationMessage(error.message)); return; }
+  const id = data.get("id"); const existing = state.items.find((item) => item.id === id); const title = existing?.provenance === "catalog" ? existing.title : String(data.get("title") || "").trim();
   if (!title) { announce(tx("Add a name.", "Добавьте название.", "Nom kiriting.")); return; }
   const timestamp = new Date().toISOString();
-  const item = { ...(existing || {}), id: existing?.id || createId("custom"), title, category: data.get("category"), country: data.get("country"), jurisdiction: data.get("country"), subjectId: data.get("subjectId"), assetId: data.get("assetId") || null, provenance: existing?.provenance || "user", confirmation: "confirmed", schedule: { kind: data.get("kind"), date: data.get("date"), frequency: data.get("frequency") || "yearly", interval: 1 }, reminderInput: data.get("reminderInput"), reminderOffsets: offsets, status: existing?.status || "active", notes: String(data.get("notes") || "").trim().slice(0, 500), createdAt: existing?.createdAt || timestamp, updatedAt: timestamp };
+  const subjectType = existing?.provenance === "catalog" ? existing.subjectType : data.get("subjectType");
+  const applicability = existing?.provenance === "catalog" ? (data.get("applicability") || existing.applicability || "candidate") : "user_confirmed";
+  const item = { ...(existing || {}), id: existing?.id || createId("custom"), title, category: existing?.provenance === "catalog" ? existing.category : data.get("category"), country: existing?.provenance === "catalog" ? existing.country : data.get("country"), jurisdiction: existing?.provenance === "catalog" ? existing.country : data.get("country"), subjectType, personId: subjectType === "person" ? (existing?.provenance === "catalog" ? existing.personId : data.get("personId")) : null, assetId: subjectType === "asset" ? (existing?.provenance === "catalog" ? existing.assetId : data.get("assetId")) : null, responsiblePersonId: data.get("responsiblePersonId") || (subjectType === "person" ? (existing?.personId || data.get("personId")) : null), provenance: existing?.provenance || "user", confirmation: "confirmed", applicability, schedule: { kind: data.get("kind"), date: confirmedDate, frequency: data.get("frequency") || "yearly", interval: 1 }, reminderInput, reminderOffsets: offsets, status: applicability === "not_applicable" ? "paused" : existing?.status === "paused" ? "active" : existing?.status || "active", notes: String(data.get("notes") || "").trim().slice(0, 500), createdAt: existing?.createdAt || timestamp, updatedAt: timestamp };
+  if (!validateSubject(item)) { announce(tx("Choose exactly one subject.", "Выберите ровно один предмет обязанности.", "Faqat bitta majburiyat obyektini tanlang.")); return; }
   state.items = existing ? state.items.map((entry) => entry.id === existing.id ? item : entry) : [...state.items, item];
   await persistState(); document.querySelector("#item-dialog").close(); render(); announce(tx("Saved.", "Сохранено.", "Saqlandi."));
 }
 
 async function saveAsset() {
   const form = document.querySelector("#asset-form"); const data = new FormData(form); const id = data.get("id"); const existing = state.assets.find((asset) => asset.id === id);
+  if (!data.get("type")) { announce(tx("Choose a possession type.", "Выберите тип имущества.", "Mulk turini tanlang.")); return; }
   if (!data.get("country")) { announce(tx("Choose the possession’s country.", "Выберите страну имущества.", "Mulk mamlakatini tanlang.")); return; }
-  const asset = { id: existing?.id || createId("asset"), type: data.get("type"), label: String(data.get("label") || "").trim() || assetTypeLabel(data.get("type")), details: String(data.get("details") || "").trim(), country: data.get("country"), ownerId: data.get("ownerId") };
-  state.assets = existing ? state.assets.map((entry) => entry.id === existing.id ? asset : entry) : [...state.assets, asset]; syncActiveCountries();
+  const assetId = existing?.id || createId("asset");
+  const facts = {};
+  if (data.get("vehicleIdentifierSuffix")) facts.vehicleIdentifierSuffix = String(data.get("vehicleIdentifierSuffix")).trim();
+  for (const field of ["vehicleClass", "vehicleUse", "vehicleFirstRegisteredOn", "vehiclePlateStatus", "vehicleImportStatus"]) {
+    if (data.get(field)) facts[field] = String(data.get(field));
+  }
+  if (data.get("propertyUse")) facts.propertyUse = data.get("propertyUse");
+  if (data.get("businessForm")) facts.businessForm = String(data.get("businessForm")).trim();
+  const asset = { id: assetId, type: data.get("type"), subtype: existing?.subtype || "", label: String(data.get("label") || "").trim() || assetTypeLabel(data.get("type")), status: existing?.status || "active", facts };
+  state.assets = existing ? state.assets.map((entry) => entry.id === existing.id ? asset : entry) : [...state.assets, asset];
+  const existingPrimary = primaryAssetJurisdiction(state, assetId);
+  const primary = { id: existingPrimary?.id || createId("asset-jurisdiction"), assetId, country: data.get("country"), role: assetJurisdictionRoleForType(asset.type), isPrimary: true };
+  const jurisdictionMap = new Map();
+  for (const row of form.querySelectorAll("#asset-jurisdiction-list .role-row")) {
+    const country = row.querySelector('[name="jurisdictionCountry"]').value; const role = row.querySelector('[name="jurisdictionRole"]').value;
+    if (country && !(country === primary.country && role === primary.role)) jurisdictionMap.set(`${country}|${role}`, { id: createId("asset-jurisdiction"), assetId, country, role, isPrimary: false });
+  }
+  const additional = [...jurisdictionMap.values()];
+  state.assetJurisdictions = [...state.assetJurisdictions.filter((record) => record.assetId !== assetId), primary, ...additional];
+  const roleMap = new Map();
+  for (const row of form.querySelectorAll("#asset-role-list .role-row")) {
+    const personId = row.querySelector('[name="rolePersonId"]').value; const role = row.querySelector('[name="roleType"]').value;
+    const shareValue = row.querySelector('[name="roleShare"]')?.value; const sharePercent = ["owner", "co_owner"].includes(role) && shareValue ? Number(shareValue) : null;
+    if (personId) roleMap.set(`${personId}|${role}`, { id: createId("asset-role"), assetId, personId, role, sharePercent });
+  }
+  const roles = [...roleMap.values()];
+  state.assetPersonRoles = [...state.assetPersonRoles.filter((record) => record.assetId !== assetId), ...roles];
+  syncActiveCountries();
   reconcileCatalogItems();
   await persistState(); document.querySelector("#asset-dialog").close(); render(); announce(tx("Possession saved.", "Имущество сохранено.", "Mulk saqlandi."));
 }
@@ -694,18 +932,22 @@ async function deleteAsset() {
 
 async function savePerson() {
   const form = document.querySelector("#person-form"); const data = new FormData(form); const id = data.get("id"); const existing = state.people.find((person) => person.id === id);
-  if (!data.get("citizenship") || !data.get("residence")) { announce(tx("Choose citizenship and where this person lives.", "Выберите гражданство и место проживания.", "Fuqarolik va yashash joyini tanlang.")); return; }
-  const citizenships = [...(existing?.citizenships || [])]; const citizenship = data.get("citizenship");
-  if (citizenship) { if (citizenships.length) citizenships[0] = citizenship; else citizenships.push(citizenship); }
-  const jurisdictions = [...(existing?.jurisdictions || [])]; const residence = data.get("residence");
+  const person = { id: existing?.id || createId("person"), name: String(data.get("name") || "").trim() || tx("Person", "Человек", "Shaxs"), relationship: existing?.relationship || "dependant", birthDate: existing?.birthDate || "" };
+  state.people = existing ? state.people.map((entry) => entry.id === existing.id ? person : entry) : [...state.people, person];
+  const citizenships = [...new Set(data.getAll("citizenshipCountry").filter(Boolean))];
+  const previousCitizenships = new Map(state.citizenships.filter((record) => record.personId === person.id).map((record) => [record.country, record]));
+  state.citizenships = state.citizenships.filter((record) => record.personId !== person.id);
+  for (const country of citizenships) state.citizenships.push(previousCitizenships.get(country) || { id: createId("citizenship"), personId: person.id, country, confirmation: "user_confirmed" });
+  const residence = data.get("residence");
   if (residence) {
-    const primaryIndex = jurisdictions.findIndex((item) => item.type === "residence"); const current = primaryIndex >= 0 ? jurisdictions[primaryIndex] : null;
-    const domestic = citizenships.includes(residence); const sameCountry = current?.country === residence;
-    const relation = { ...(sameCountry ? current : {}), id: current?.id || createId("relation"), country: residence, type: "residence", contextType: "lives_now", purpose: domestic ? "long_term" : (sameCountry ? current?.purpose : "unknown"), route: domestic ? "citizen" : (sameCountry ? current?.route : "not_sure"), basis: domestic ? "citizen" : (sameCountry ? current?.route : "not_sure") };
-    if (primaryIndex >= 0) jurisdictions[primaryIndex] = relation; else jurisdictions.push(relation);
+    let context = state.countryContexts.find((record) => record.personId === person.id && record.contextType === "lives_now");
+    if (!context) { context = { id: createId("context"), personId: person.id, contextType: "lives_now", startsOn: "", endsOn: "", confirmation: "user_confirmed" }; state.countryContexts.push(context); }
+    context.country = residence; context.purpose = personCitizenships(person.id).includes(residence) ? "long_term" : "unknown";
+    let route = routeForContext(state, context.id);
+    if (!route) { route = { id: createId("route"), countryContextId: context.id }; state.legalRoutes.push(route); }
+    route.routeCode = personCitizenships(person.id).includes(residence) ? "citizen" : "not_sure"; route.routeFamily = route.routeCode === "citizen" ? "citizen" : "unknown"; route.stage = route.routeCode === "citizen" ? "active" : "exploring"; route.confirmation = route.routeCode === "citizen" ? "user_confirmed" : "unconfirmed";
   }
-  const person = { id: existing?.id || createId("person"), name: String(data.get("name") || "").trim() || tx("Person", "Человек", "Shaxs"), relationship: existing?.relationship || "dependant", citizenships: [...new Set(citizenships.filter(Boolean))], residenceCountry: residence || existing?.residenceCountry || "", jurisdictions };
-  state.people = existing ? state.people.map((entry) => entry.id === existing.id ? person : entry) : [...state.people, person]; syncActiveCountries(); reconcileCatalogItems();
+  syncActiveCountries(); reconcileCatalogItems();
   await persistState(); document.querySelector("#person-dialog").close(); render(); announce(tx("Person saved.", "Человек сохранён.", "Shaxs saqlandi."));
 }
 
@@ -714,44 +956,76 @@ async function saveCountryRelation() {
   if (!person || !country) { announce(tx("Choose a country.", "Выберите страну.", "Mamlakatni tanlang.")); return; }
   const relationId = data.get("relationId"); const originalCountry = data.get("originalCountry");
   if (data.get("recordKind") === "citizenship") {
-    if (relationId) person.jurisdictions = (person.jurisdictions || []).filter((entry) => entry.id !== relationId);
-    person.citizenships = [...new Set([...(person.citizenships || []).filter((entry) => entry !== originalCountry), country])];
-    person.jurisdictions = (person.jurisdictions || []).filter((entry) => entry.country !== country || entry.type === "residence");
+    if (relationId) removeCountryContext(relationId);
+    state.citizenships = state.citizenships.filter((record) => !(record.personId === person.id && record.country === originalCountry));
+    if (!state.citizenships.some((record) => record.personId === person.id && record.country === country)) state.citizenships.push({ id: createId("citizenship"), personId: person.id, country, confirmation: "user_confirmed" });
+    for (const context of personContexts(person.id).filter((record) => record.country === country)) {
+      let route = routeForContext(state, context.id); if (!route) { route = { id: createId("route"), countryContextId: context.id }; state.legalRoutes.push(route); }
+      route.routeCode = "citizen"; route.routeFamily = "citizen"; route.stage = "active"; route.confirmation = "user_confirmed";
+    }
   } else {
-    if ((person.citizenships || []).includes(country)) { announce(tx("Use the citizenship record for this country; no foreign route is needed.", "Для этой страны используйте запись о гражданстве — иностранное основание не нужно.", "Bu mamlakat uchun fuqarolik yozuvidan foydalaning; xorijiy asos kerak emas.")); return; }
-    if (originalCountry) person.citizenships = (person.citizenships || []).filter((entry) => entry !== originalCountry);
-    const existingRelation = (person.jurisdictions || []).find((entry) => entry.id === relationId); const purpose = data.get("purpose") || "unknown"; const route = data.get("route") || "not_sure";
-    if (!routeChoices(country, purpose, person.citizenships || []).includes(route)) { announce(tx("Choose a route that matches this country, citizenship, and purpose.", "Выберите основание, совместимое со страной, гражданством и целью.", "Mamlakat, fuqarolik va maqsadga mos asosni tanlang.")); return; }
+    const isCitizen = personCitizenships(person.id).includes(country);
+    if (originalCountry) state.citizenships = state.citizenships.filter((record) => !(record.personId === person.id && record.country === originalCountry));
+    const existingRelation = state.countryContexts.find((entry) => entry.id === relationId); const purpose = data.get("purpose") || "unknown"; const routeCode = isCitizen ? "citizen" : purpose === "unknown" ? "not_sure" : data.get("route") || "not_sure";
+    if (!isCitizen && !routeChoices(country, purpose, personCitizenships(person.id)).includes(routeCode)) { announce(tx("Choose a route that matches this country, citizenship, and purpose.", "Выберите основание, совместимое со страной, гражданством и целью.", "Mamlakat, fuqarolik va maqsadga mos asosni tanlang.")); return; }
     const startsOn = data.get("startsOn") || ""; const endsOn = data.get("endsOn") || "";
     if (startsOn && endsOn && endsOn < startsOn) { announce(tx("The end date must be after the start date.", "Дата окончания должна быть позже даты начала.", "Tugash sanasi boshlanish sanasidan keyin bo‘lishi kerak.")); return; }
-    const relation = { id: relationId || createId("relation"), country, type: existingRelation?.type || "destination", contextType: existingRelation?.contextType || "planned_move", purpose, route, basis: route, startsOn, endsOn, statusDocument: data.get("hasDocument") ? { label: String(data.get("statusLabel") || "").trim(), printedExpiry: data.get("printedExpiry") || "", status: "active" } : null, note: String(data.get("note") || "").trim() };
-    person.jurisdictions = relationId ? (person.jurisdictions || []).map((entry) => entry.id === relationId ? relation : entry) : [...(person.jurisdictions || []), relation];
+    const relation = { id: relationId || createId("context"), personId: person.id, country, contextType: data.get("contextType") || existingRelation?.contextType || "planned_move", purpose, startsOn, endsOn, confirmation: "user_confirmed", note: String(data.get("note") || "").trim() };
+    state.countryContexts = existingRelation ? state.countryContexts.map((entry) => entry.id === existingRelation.id ? relation : entry) : [...state.countryContexts, relation];
+    let route = routeForContext(state, relation.id); if (!route) { route = { id: createId("route"), countryContextId: relation.id }; state.legalRoutes.push(route); }
+    route.routeCode = routeCode; route.routeFamily = routeCode === "citizen" ? "citizen" : routeCode === "not_sure" ? "unknown" : "other"; route.stage = routeCode === "citizen" ? "active" : routeCode === "not_sure" ? "exploring" : data.get("routeStage") || "exploring"; route.confirmation = routeCode === "not_sure" ? "unconfirmed" : "user_confirmed"; route.principalPersonId = data.get("principalPersonId") || null;
+    if (purpose === "family" && route.principalPersonId) {
+      const existingRelationship = state.personRelationships.find((record) => record.fromPersonId === person.id && record.toPersonId === route.principalPersonId && !record.endsOn);
+      const relationship = { id: existingRelationship?.id || createId("person-relationship"), fromPersonId: person.id, toPersonId: route.principalPersonId, relationshipType: data.get("relationshipType") || "other", startsOn: existingRelationship?.startsOn || "", endsOn: "", confirmation: "user_confirmed" };
+      state.personRelationships = existingRelationship ? state.personRelationships.map((record) => record.id === existingRelationship.id ? relationship : record) : [...state.personRelationships, relationship];
+    }
+    state.routeParties = state.routeParties.filter((record) => record.legalRouteId !== route.id);
+    for (const [partyType, field] of [["employer", "employerLabel"], ["institution", "institutionLabel"], ["sponsor", "sponsorLabel"]]) {
+      const label = String(data.get(field) || "").trim(); if (label) state.routeParties.push({ id: createId("route-party"), legalRouteId: route.id, partyType, label });
+    }
+    state.issuedDocuments = state.issuedDocuments.filter((document) => document.legalRouteId !== route.id);
+    if (data.get("hasDocument")) state.issuedDocuments.push({ id: createId("document"), subjectType: "person", personId: person.id, assetId: null, legalRouteId: route.id, country, documentType: "immigration_status", title: String(data.get("statusLabel") || "").trim() || routeLabel(routeCode), status: "active", validFrom: data.get("documentValidFrom") || "", validUntil: data.get("printedExpiry") || "", confirmation: "user_confirmed" });
   }
   syncActiveCountries(); reconcileCatalogItems(); await persistState(); document.querySelector("#country-dialog").close(); render(); announce(tx("Country context saved and the plan was updated.", "Контекст страны сохранён, план обновлён.", "Mamlakat konteksti saqlandi va reja yangilandi."));
+}
+
+function removeCountryContext(contextId) {
+  const routeIds = state.legalRoutes.filter((route) => route.countryContextId === contextId).map((route) => route.id);
+  state.countryContexts = state.countryContexts.filter((context) => context.id !== contextId);
+  state.legalRoutes = state.legalRoutes.filter((route) => route.countryContextId !== contextId);
+  state.routeParties = state.routeParties.filter((party) => !routeIds.includes(party.legalRouteId));
+  state.issuedDocuments = state.issuedDocuments.filter((document) => !routeIds.includes(document.legalRouteId));
 }
 
 async function deleteCountryRelation() {
   const form = document.querySelector("#country-form"); const person = state.people.find((entry) => entry.id === form.elements.personId.value); if (!person) return;
   const relationId = form.elements.relationId.value; const originalCountry = form.elements.originalCountry.value;
-  if (relationId) person.jurisdictions = (person.jurisdictions || []).filter((entry) => entry.id !== relationId);
-  if (originalCountry) person.citizenships = (person.citizenships || []).filter((entry) => entry !== originalCountry);
+  if (relationId) removeCountryContext(relationId);
+  if (originalCountry) state.citizenships = state.citizenships.filter((record) => !(record.personId === person.id && record.country === originalCountry));
   syncActiveCountries(); reconcileCatalogItems(); await persistState(); document.querySelector("#country-dialog").close(); render(); announce(tx("Country details removed.", "Данные о стране удалены.", "Mamlakat ma’lumotlari olib tashlandi."));
 }
 
 function downloadText(filename, text, type) { const blob = new Blob([text], { type }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
 function exportCalendar() { const valid = state.items.filter((item) => parseISODate(item.schedule?.date) && item.status === "active").map((item) => ({ ...item, title: itemTitle(item) })); if (!valid.length) { announce(tx("Add at least one date first.", "Сначала добавьте хотя бы одну дату.", "Avval kamida bitta sana kiriting.")); return; } downloadText("nextdue-calendar.ics", generateICS(valid, state.settings), "text/calendar;charset=utf-8"); }
 
-async function addCatalogItem(id) {
-  const entry = CATALOG.find((item) => item.id === id); if (!entry || state.items.some((item) => item.catalogId === id)) return;
-  const possible = matchCatalog(state).find((match) => match.entry.id === id); const match = possible || { entry, subjectId: state.people[0]?.id || null, assetId: null };
-  if (!possible && entry.match?.kind !== "manual") { announce(tx("This rule does not match the citizenship, purpose, route, or possession you saved.", "Это правило не подходит к сохранённым гражданству, цели, основанию или имуществу.", "Bu qoida saqlangan fuqarolik, maqsad, asos yoki mulkka mos emas.")); return; }
-  state.items.push(makeItemFromCatalog(match, { title: localized(entry.title, state.locale), reason: localized(entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: personName(match.subjectId) })); state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), entry.country])];
+async function addCatalogItem(id, targetValue = "") {
+  const entry = CATALOG.find((item) => item.id === id); if (!entry) return;
+  const matches = entry.match?.kind === "manual" && entry.subjectType === "person"
+    ? state.people.map((person) => ({ entry, subjectId: person.id, assetId: null }))
+    : matchCatalog(catalogGraph(state)).filter((match) => match.entry.id === id);
+  const [targetPersonId = "", targetAssetId = ""] = targetValue.split("|");
+  const match = matches.find((candidate) => candidate.subjectId === targetPersonId && (candidate.assetId || "") === targetAssetId) || (matches.length === 1 ? matches[0] : null);
+  if (!match) { announce(tx("Choose the person or possession to track.", "Выберите человека или объект для отслеживания.", "Kuzatish uchun shaxs yoki mulkni tanlang.")); return; }
+  const key = catalogItemKey(id, match.subjectId, match.assetId);
+  if (state.items.some((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item)) === key)) return;
+  state.items.push(normalizeCatalogObligation(makeItemFromCatalog(match, { title: localized(entry.title, state.locale), reason: localized(entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: personName(match.subjectId) }), match.subjectId, "confirmed")); state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), entry.country])];
   await persistState(); render(); announce(tx("Added to your plan. Confirm the date next.", "Добавлено в план. Теперь подтвердите дату.", "Rejaga qo‘shildi. Endi sanani tasdiqlang."));
 }
 
 function filterCatalog(country) {
-  document.querySelectorAll("[data-catalog-country]").forEach((card) => { card.hidden = country !== "all" && card.dataset.catalogCountry !== country; });
-  document.querySelectorAll("[data-country-filter]").forEach((button) => button.classList.toggle("active", button.dataset.countryFilter === country));
+  ruleFilters.country = country;
+  ruleFilters.limit = 60;
+  render();
 }
 
 function renderCountryPickerList(query = "") {
@@ -761,7 +1035,7 @@ function renderCountryPickerList(query = "") {
   const options = COUNTRIES.filter(([code]) => code && !excluded.has(code)).filter(([code]) => {
     if (!normalized) return true; const names = [countryName(code), COUNTRIES.find(([value]) => value === code)?.[1] || "", code].join(" ").toLocaleLowerCase(state.locale); return names.includes(normalized);
   }).sort(([a], [b]) => Number(related.has(b)) - Number(related.has(a)) || countryName(a).localeCompare(countryName(b), state.locale));
-  list.innerHTML = options.length ? options.map(([code]) => `<button type="button" role="option" class="country-option ${countryPickerTarget.value === code ? "selected" : ""}" data-action="choose-country" data-country="${code}"><span class="country-option-flag">${flagForCountry(code)}</span><span><strong>${escapeHTML(countryName(code))}</strong><small>${code}${related.has(code) ? ` · ${tx("Your country", "Ваша страна", "Sizning mamlakatingiz")}` : ""}</small></span>${countryPickerTarget.value === code ? icon("check", 17) : ""}</button>`).join("") : `<p class="mini-empty">${tx("No countries found.", "Страны не найдены.", "Mamlakat topilmadi.")}</p>`;
+  list.innerHTML = options.length ? options.map(([code]) => `<button type="button" role="option" aria-selected="${countryPickerTarget.value === code}" tabindex="-1" class="country-option ${countryPickerTarget.value === code ? "selected" : ""}" data-action="choose-country" data-country="${code}"><span class="country-option-flag">${flagForCountry(code)}</span><span><strong>${escapeHTML(countryName(code))}</strong><small>${code}${related.has(code) ? ` · ${tx("Your country", "Ваша страна", "Sizning mamlakatingiz")}` : ""}</small></span>${countryPickerTarget.value === code ? icon("check", 17) : ""}</button>`).join("") : `<p class="mini-empty">${tx("No countries found.", "Страны не найдены.", "Mamlakat topilmadi.")}</p>`;
 }
 
 function openCountryPicker(target, value = "", exclude = []) {
@@ -773,13 +1047,16 @@ function applyCountryPick(country) {
   const target = countryPickerTarget?.target || "";
   if (target === "setup-citizenship-new") setupDraft.citizenships.push(country);
   else if (target.startsWith("setup-citizenship-")) setupDraft.citizenships[Number(target.split("-").pop())] = country;
-  else if (target === "setup-residence") { setupDraft.residenceCountry = country; setupDraft.residencePurpose = "work"; setupDraft.residenceRoute = routeChoices(country, "work", setupDraft.citizenships)[0]; }
-  else if (target === "setup-plan-new") setupDraft.plans.push({ id: createId("draft-plan"), country, purpose: "visit", route: routeChoices(country, "visit", setupDraft.citizenships)[0] });
-  else if (target.startsWith("setup-plan-")) { const plan = setupDraft.plans[Number(target.split("-").pop())]; if (plan) { plan.country = country; plan.route = routeChoices(country, plan.purpose, setupDraft.citizenships)[0]; } }
+  else if (target === "setup-residence") { setupDraft.residenceCountry = country; setupDraft.residencePurpose = ""; setupDraft.residenceRoute = ""; }
+  else if (target === "setup-plan-new") setupDraft.plans.push({ id: createId("draft-plan"), country, purpose: "", route: "" });
+  else if (target.startsWith("setup-plan-")) { const plan = setupDraft.plans[Number(target.split("-").pop())]; if (plan) { plan.country = country; plan.route = ""; } }
   else if (target.startsWith("setup-asset-")) { const asset = setupDraft.assets[Number(target.split("-").pop())]; if (asset) asset.country = country; }
-  else {
-    const mapping = { "person-citizenship": ["#person-form", "citizenship", "#person-citizenship-picker"], "person-residence": ["#person-form", "residence", "#person-residence-picker"], "asset-country": ["#asset-form", "country", "#asset-country-picker"], "country-record": ["#country-form", "country", "#country-record-picker"] };
-    const config = mapping[target]; if (config) { const form = document.querySelector(config[0]); form.elements[config[1]].value = country; updateCountryPickerButton(document.querySelector(config[2]), country); if (target === "person-citizenship" && !form.elements.residence.value) { form.elements.residence.value = country; const residenceButton = document.querySelector("#person-residence-picker"); residenceButton.dataset.countryExclude = country; updateCountryPickerButton(residenceButton, country); } if (target === "country-record") updateCountryRecordRouteOptions(); }
+  else if (target === "person-citizenship-new") renderPersonCitizenshipRows([...personFormCitizenships(), country]);
+  else if (target.startsWith("person-citizenship-")) {
+    const citizenships = personFormCitizenships(); citizenships[Number(target.split("-").pop())] = country; renderPersonCitizenshipRows(citizenships);
+  } else {
+    const mapping = { "person-residence": ["#person-form", "residence", "#person-residence-picker"], "asset-country": ["#asset-form", "country", "#asset-country-picker"], "country-record": ["#country-form", "country", "#country-record-picker"] };
+    const config = mapping[target]; if (config) { const form = document.querySelector(config[0]); form.elements[config[1]].value = country; updateCountryPickerButton(document.querySelector(config[2]), country); if (target === "country-record") { updateCountryPurposeOptions(); updateCountryRecordRouteOptions(); } }
   }
   document.querySelector("#country-picker-dialog").close(); countryPickerTarget = null; if (target.startsWith("setup-")) render();
 }
@@ -788,42 +1065,60 @@ document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]"); if (!target) return; const action = target.dataset.action;
   if (action === "setup-home") { event.preventDefault(); setupStep = 1; render(); }
   if (action === "choose-goal") { setupDraft.goal = target.dataset.value; render(); }
-  if (action === "setup-next") { if (setupStep === 2 && (!setupDraft.citizenships.length || !setupDraft.residenceCountry)) { announce(tx("Add citizenship and current residence first.", "Сначала добавьте гражданство и текущее место проживания.", "Avval fuqarolik va hozirgi yashash joyini qo‘shing.")); } else { setupStep = Math.min(4, setupStep + 1); render(); } }
+  if (action === "setup-next") {
+    const domesticResidence = setupDraft.citizenships.includes(setupDraft.residenceCountry);
+    const incompleteResidence = setupDraft.residenceCountry && !domesticResidence && (!setupDraft.residencePurpose || (setupDraft.residencePurpose !== "unknown" && !setupDraft.residenceRoute));
+    const incompletePlan = setupDraft.plans.some((plan) => !plan.country || !plan.purpose || (plan.purpose !== "unknown" && !plan.route));
+    if (setupStep === 2 && (!setupDraft.citizenships.length || !setupDraft.residenceCountry)) announce(tx("Add citizenship and current residence first.", "Сначала добавьте гражданство и текущее место проживания.", "Avval fuqarolik va hozirgi yashash joyini qo‘shing."));
+    else if (setupStep === 2 && incompleteResidence) announce(tx("Choose your purpose and legal route, or explicitly select ‘Not sure yet’.", "Выберите цель и правовое основание либо явно укажите «Пока не знаю».", "Maqsad va huquqiy asosni tanlang yoki «Hozircha bilmayman»ni aniq belgilang."));
+    else if (setupStep === 2 && incompletePlan) announce(tx("Complete or remove every added trip or move.", "Заполните или удалите каждую добавленную поездку или переезд.", "Har bir qo‘shilgan safar yoki ko‘chishni to‘ldiring yoki olib tashlang."));
+    else if (setupStep === 3 && setupDraft.assets.some((asset) => !asset.type || !asset.country)) announce(tx("Choose a type and country for every possession.", "Выберите тип и страну для каждого объекта.", "Har bir mulk uchun tur va mamlakatni tanlang."));
+    else { setupStep = Math.min(4, setupStep + 1); render(); }
+  }
   if (action === "setup-back") { setupStep = Math.max(1, setupStep - 1); render(); }
   if (action === "setup-add-citizenship") openCountryPicker("setup-citizenship-new", "", setupDraft.citizenships);
   if (action === "setup-remove-citizenship") { setupDraft.citizenships.splice(Number(target.dataset.index), 1); render(); }
   if (action === "setup-same-residence") { setupDraft.residenceCountry = target.dataset.country; setupDraft.residencePurpose = "long_term"; setupDraft.residenceRoute = "citizen"; render(); }
   if (action === "setup-add-plan") openCountryPicker("setup-plan-new", "", setupDraft.citizenships);
   if (action === "setup-remove-plan") { setupDraft.plans.splice(Number(target.dataset.index), 1); render(); }
-  if (action === "setup-add-asset") { setupDraft.assets.push({ id: createId("draft-asset"), type: "property", label: "", country: setupDraft.residenceCountry || setupDraft.citizenships[0] || "" }); render(); }
+  if (action === "setup-add-asset") { setupDraft.assets.push({ id: createId("draft-asset"), type: "", label: "", country: setupDraft.residenceCountry || setupDraft.citizenships[0] || "", role: "owner" }); render(); }
   if (action === "setup-remove-asset") { setupDraft.assets.splice(Number(target.dataset.index), 1); render(); }
   if (action === "finish-setup") await finishSetup();
   if (action === "change-view") { activeView = target.dataset.view; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
-  if (action === "open-catalog-country") { activeView = "catalog"; render(); window.setTimeout(() => filterCatalog(target.dataset.country), 0); }
+  if (action === "open-catalog-country") { activeView = "catalog"; ruleFilters.country = target.dataset.country; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
   if (action === "add-item") openItemDialog();
   if (action === "edit-item") openItemDialog(state.items.find((item) => item.id === target.dataset.id));
   if (action === "save-item") await saveItem();
   if (action === "add-asset") openAssetDialog();
   if (action === "edit-asset") openAssetDialog(state.assets.find((asset) => asset.id === target.dataset.id));
   if (action === "save-asset") await saveAsset();
+  if (action === "add-asset-role") addAssetRoleRow({ personId: state.people[0]?.id || "", role: "owner" });
+  if (action === "add-asset-jurisdiction") addAssetJurisdictionRow({ role: "tax" });
+  if (action === "remove-dynamic-row") target.closest(".role-row")?.remove();
   if (action === "add-person") openPersonDialog();
   if (action === "edit-person") openPersonDialog(state.people.find((person) => person.id === target.dataset.id));
   if (action === "save-person") await savePerson();
-  if (action === "use-citizenship-residence") { const form = document.querySelector("#person-form"); const country = form.elements.citizenship.value; if (!country) announce(tx("Choose citizenship first.", "Сначала выберите гражданство.", "Avval fuqarolikni tanlang.")); else { form.elements.residence.value = country; const picker = document.querySelector("#person-residence-picker"); picker.dataset.countryExclude = country; updateCountryPickerButton(picker, country); } }
+  if (action === "add-person-citizenship") openCountryPicker("person-citizenship-new", "", personFormCitizenships());
+  if (action === "remove-person-citizenship") { const citizenships = personFormCitizenships(); citizenships.splice(Number(target.dataset.index), 1); renderPersonCitizenshipRows(citizenships); }
+  if (action === "use-citizenship-residence") { const form = document.querySelector("#person-form"); const citizenships = personFormCitizenships(); if (!citizenships.length) announce(tx("Add a citizenship first.", "Сначала добавьте гражданство.", "Avval fuqarolik qo‘shing.")); else if (citizenships.length > 1) openCountryPicker("person-residence", form.elements.residence.value || "", COUNTRIES.map(([code]) => code).filter((code) => code && !citizenships.includes(code))); else { form.elements.residence.value = citizenships[0]; updateCountryPickerButton(document.querySelector("#person-residence-picker"), citizenships[0]); } }
   if (action === "add-country") openCountryDialog(target.dataset.personId);
   if (action === "edit-country") openCountryDialog(target.dataset.personId, target.dataset.relationId, target.dataset.citizenshipCountry);
   if (action === "save-country-relation") await saveCountryRelation();
-  if (action === "add-catalog") await addCatalogItem(target.dataset.id);
+  if (action === "add-catalog") {
+    const selectedTarget = target.closest(".catalog-card")?.querySelector(`[data-catalog-target="${CSS.escape(target.dataset.id)}"]`)?.value || target.dataset.target || "";
+    await addCatalogItem(target.dataset.id, selectedTarget);
+  }
   if (action === "export-calendar") exportCalendar();
   if (action === "backup-data") downloadText(`nextdue-backup-${toISODate(new Date())}.json`, JSON.stringify(state, null, 2), "application/json");
   if (action === "restore-data") document.querySelector("#restore-input").click();
   if (action === "calendar-menu") { const item = state.items.find((entry) => entry.id === target.dataset.id); const localizedItem = { ...item, title: itemTitle(item) }; const links = calendarLinks(localizedItem); if (!links) return; const dialog = document.querySelector("#calendar-dialog"); dialog.querySelector("#calendar-item-name").textContent = localizedItem.title; dialog.querySelector("#google-link").href = links.google; dialog.querySelector("#outlook-link").href = links.outlook; dialog.showModal(); }
   if (action === "close-dialog") target.closest("dialog").close();
-  if (action === "saas-info") document.querySelector("#saas-dialog").showModal();
   if (action === "open-country-picker") openCountryPicker(target.dataset.countryTarget, target.dataset.countryValue || "", (target.dataset.countryExclude || "").split(",").filter(Boolean));
   if (action === "choose-country") applyCountryPick(target.dataset.country);
   if (action === "set-plan-view") { planFilters.view = target.dataset.value; render(); }
   if (action === "set-plan-status") { planFilters.status = target.dataset.value; render(); }
+  if (action === "set-rule-tier") { ruleFilters.tier = target.dataset.value; ruleFilters.limit = 60; render(); }
+  if (action === "show-more-rules") { ruleFilters.limit += 60; render(); }
   if (action === "toggle-plan-filters") { planFilters.open = !planFilters.open; render(); }
   if (action === "clear-plan-filter") { planFilters[target.dataset.filter] = "all"; render(); }
   if (action === "clear-plan-filters") { planFilters = { ...planFilters, country: "all", personId: "all", assetType: "all", assetId: "all", open: false }; render(); }
@@ -832,17 +1127,25 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("change", async (event) => {
   if (event.target.id === "setup-locale") { setupDraft.locale = event.target.value; render(); }
   if (event.target.dataset.setupCitizenshipIndex !== undefined) setupDraft.citizenships[Number(event.target.dataset.setupCitizenshipIndex)] = event.target.value;
-  if (event.target.dataset.setupResidencePurpose !== undefined) { setupDraft.residencePurpose = event.target.value; setupDraft.residenceRoute = routeChoices(setupDraft.residenceCountry, event.target.value, setupDraft.citizenships)[0]; render(); }
+  if (event.target.dataset.setupResidencePurpose !== undefined) { setupDraft.residencePurpose = event.target.value; setupDraft.residenceRoute = ""; render(); }
   if (event.target.dataset.setupResidenceRoute !== undefined) setupDraft.residenceRoute = event.target.value;
-  if (event.target.dataset.setupPlanIndex !== undefined) { const plan = setupDraft.plans[Number(event.target.dataset.setupPlanIndex)]; if (plan) { plan[event.target.dataset.field] = event.target.value; if (event.target.dataset.field === "purpose") { plan.route = routeChoices(plan.country, plan.purpose, setupDraft.citizenships)[0]; render(); } } }
-  if (event.target.dataset.setupAssetIndex !== undefined) { const asset = setupDraft.assets[Number(event.target.dataset.setupAssetIndex)]; if (asset) asset[event.target.dataset.field] = event.target.value; }
-  if (event.target.dataset.planFilter) { const filter = event.target.dataset.planFilter; planFilters[filter] = event.target.value; if (["country", "assetType"].includes(filter) && planFilters.assetId !== "all") { const selectedAsset = state.assets.find((asset) => asset.id === planFilters.assetId); if ((planFilters.country !== "all" && selectedAsset?.country !== planFilters.country) || (planFilters.assetType !== "all" && selectedAsset?.type !== planFilters.assetType)) planFilters.assetId = "all"; } if (filter === "assetId" && event.target.value !== "all") { const selectedAsset = state.assets.find((asset) => asset.id === event.target.value); planFilters.country = selectedAsset?.country || planFilters.country; planFilters.assetType = selectedAsset?.type || planFilters.assetType; } render(); }
+  if (event.target.dataset.setupPlanIndex !== undefined) { const plan = setupDraft.plans[Number(event.target.dataset.setupPlanIndex)]; if (plan) { plan[event.target.dataset.field] = event.target.value; if (event.target.dataset.field === "purpose") { plan.route = ""; render(); } } }
+  if (event.target.dataset.setupAssetIndex !== undefined) { const asset = setupDraft.assets[Number(event.target.dataset.setupAssetIndex)]; if (asset) { asset[event.target.dataset.field] = event.target.value; if (event.target.dataset.field === "type") render(); } }
+  if (event.target.dataset.planFilter) { const filter = event.target.dataset.planFilter; planFilters[filter] = event.target.value; if (["country", "assetType"].includes(filter) && planFilters.assetId !== "all") { const selectedAsset = state.assets.find((asset) => asset.id === planFilters.assetId); if ((planFilters.country !== "all" && assetCountry(selectedAsset) !== planFilters.country) || (planFilters.assetType !== "all" && selectedAsset?.type !== planFilters.assetType)) planFilters.assetId = "all"; } if (filter === "assetId" && event.target.value !== "all") { const selectedAsset = state.assets.find((asset) => asset.id === event.target.value); planFilters.country = assetCountry(selectedAsset) || planFilters.country; planFilters.assetType = selectedAsset?.type || planFilters.assetType; } render(); }
   if (event.target.closest("#country-form") && event.target.name === "recordKind") updateCountryRelationFields();
+  if (event.target.closest("#country-form") && event.target.name === "contextType") updateCountryContextFields();
   if (event.target.closest("#country-form") && event.target.name === "purpose") updateCountryRecordRouteOptions();
+  if (event.target.closest("#country-form") && event.target.name === "route") updateRoutePartyFields();
+  if (event.target.closest("#country-form") && event.target.name === "principalPersonId") updateRoutePartyFields();
   if (event.target.closest("#country-form") && event.target.name === "hasDocument") updateIssuedStatusFields();
   if (event.target.id === "language-select") { setLanguage(event.target.value); await persistState(); render(); }
+  if (event.target.id === "rule-country") { ruleFilters.country = event.target.value; ruleFilters.limit = 60; render(); }
+  if (event.target.closest("#item-form") && event.target.name === "subjectType") updateItemSubjectFields();
+  if (event.target.closest("#asset-form") && event.target.name === "type") updateAssetTypeFields();
+  if (event.target.closest("#asset-role-list") && event.target.name === "roleType") updateAssetRoleRow(event.target.closest(".role-row"));
   if (event.target.name === "kind") updateScheduleFields();
-  if (event.target.name === "date" || event.target.name === "reminderInput") updateReminderPreview();
+  if (event.target.name === "date") { updateScheduleFields(); updateReminderPreview(); }
+  if (event.target.name === "reminderInput") updateReminderPreview();
   if (event.target.dataset.setting) { state.settings[event.target.dataset.setting] = event.target.checked; await persistState(); render(); }
 });
 
@@ -850,8 +1153,24 @@ document.addEventListener("input", (event) => {
   if (event.target.name === "reminderInput" || event.target.name === "date") updateReminderPreview();
   if (event.target.dataset.setupAssetIndex !== undefined) { const asset = setupDraft.assets[Number(event.target.dataset.setupAssetIndex)]; if (asset) asset[event.target.dataset.field] = event.target.value; }
   if (event.target.id === "country-search") renderCountryPickerList(event.target.value);
+  if (event.target.id === "rule-search") { ruleFilters.query = event.target.value; ruleFilters.limit = 60; render(); document.querySelector("#rule-search")?.focus(); }
 });
-document.addEventListener("click", (event) => { const filter = event.target.closest("[data-country-filter]"); if (filter) filterCatalog(filter.dataset.countryFilter); });
+document.addEventListener("keydown", (event) => {
+  const dialog = document.querySelector("#country-picker-dialog");
+  if (!dialog.open || (event.target.id !== "country-search" && !event.target.matches("#country-picker-list [role='option']"))) return;
+  const options = [...document.querySelectorAll("#country-picker-list [role='option']")]; if (!options.length) return;
+  const current = options.indexOf(event.target);
+  let next = null;
+  if (event.key === "ArrowDown") next = options[Math.min(current + 1, options.length - 1)];
+  if (event.key === "ArrowUp") next = options[Math.max(current <= 0 ? 0 : current - 1, 0)];
+  if (event.key === "Home") next = options[0];
+  if (event.key === "End") next = options.at(-1);
+  if (next) { event.preventDefault(); next.focus(); }
+});
+document.addEventListener("click", (event) => {
+  const filter = event.target.closest("[data-country-filter]"); if (filter) filterCatalog(filter.dataset.countryFilter);
+  const tier = event.target.closest("[data-rule-tier]"); if (tier) { ruleFilters.tier = tier.dataset.ruleTier; ruleFilters.limit = 60; render(); }
+});
 
 document.querySelector("#delete-item").addEventListener("click", async () => {
   const id = document.querySelector("#item-form").elements.id.value;

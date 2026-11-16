@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CATEGORY_META = {
   identity: { label: "Identity & travel", icon: "passport", safeTitle: "Renew identity document" },
@@ -306,11 +306,17 @@ export function validateBackup(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Backup must be a JSON object.");
   if (value.version !== SCHEMA_VERSION) throw new Error("This backup version is not supported.");
   if (!value.profile || !Array.isArray(value.items) || !value.settings) throw new Error("Backup is missing required data.");
-  if (!Array.isArray(value.people) || !Array.isArray(value.assets)) throw new Error("Backup is missing people or possessions.");
+  const collections = ["people", "citizenships", "countryContexts", "legalRoutes", "routeParties", "personRelationships", "assets", "assetJurisdictions", "assetPersonRoles", "issuedDocuments"];
+  if (collections.some((key) => !Array.isArray(value[key]))) throw new Error("Backup is missing normalized household data.");
+  if (collections.some((key) => value[key].length > 5000)) throw new Error("Backup contains too many linked records.");
   if (value.items.length > 1000) throw new Error("Backup contains too many items.");
   for (const item of value.items) {
     if (!item || typeof item.title !== "string" || item.title.length > 160) throw new Error("Backup contains an invalid item.");
     if (!CATEGORY_META[item.category]) item.category = "custom";
+    const subjectIsValid = (item.subjectType === "household" && !item.personId && !item.assetId)
+      || (item.subjectType === "person" && Boolean(item.personId) && !item.assetId)
+      || (item.subjectType === "asset" && Boolean(item.assetId) && !item.personId);
+    if (!subjectIsValid) throw new Error(`Invalid subject for “${item.title.slice(0, 40)}”.`);
     if (item.schedule?.date && !parseISODate(item.schedule.date)) throw new Error(`Invalid date for “${item.title.slice(0, 40)}”.`);
     if (item.reminderInput) item.reminderOffsets = parseReminderSequence(item.reminderInput);
   }

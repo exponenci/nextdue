@@ -5,10 +5,11 @@
 The deployed private preview is a buildless browser application with no runtime API or third-party dependency.
 
 ```text
-people + citizenships + country contexts + possessions
-        ↓ deterministic catalog matcher
-country-specific purpose/route checks + source-backed rules
-        ↓ user confirms applicability and date
+normalized people + citizenships + country contexts + legal routes
+        + exact possessions + jurisdiction roles + person roles
+        ↓ registry permission filter + deterministic matcher
+verified exact rules only
+        ↓ user confirms applicability, evidence, and date
 tracked obligation
         ↓ recurrence + reminder offsets
 Plan / ICS export
@@ -16,17 +17,19 @@ Plan / ICS export
 
 One versioned state object is stored in IndexedDB with a `localStorage` fallback. Catalog and localization data ship as static ES modules. JSON restore validates schema version, size, counts, categories, titles, dates, and reminder sequences before replacing state.
 
-`account_id` is always the tenant and authorization boundary. Every possession has its own country and links to one or more people through explicit owner, co-owner, keeper, operator, taxpayer, or responsible-person roles. Every obligation has one primary subject (`account`, `person`, or `asset`) plus an optional responsible person; person and asset cannot both be the primary subject.
+`household_id` is always the tenant and authorization boundary. Possessions use repeatable jurisdiction records instead of one overloaded country, and link to people through explicit owner, co-owner, keeper, operator, taxpayer, or responsible-person roles. Every obligation has one primary subject (`household`, `person`, or `asset`) plus an optional responsible person; person and asset cannot both be the primary subject.
+
+The SaaS schema enforces this boundary twice: row-level policies authorize each household, while composite foreign keys and guarded optional references reject cross-household graph edges even when an identifier is known.
 
 ## Catalog
 
-The catalog is versioned (`2026.11.1`) and currently contains 24 Russia/Uzbekistan entries plus exact-vehicle checklist templates. Each entry includes:
+The research registry contains 694 records across 42 countries and 426 cited sources. Its deterministic build produces three permission tiers: 24 ready exact rules, 515 records needing confirmation, and 155 research prompts. The existing localized 24-rule catalog is the publishable runtime overlay while broader records undergo editorial review. Each registry entry includes:
 
 - stable ID, jurisdiction, category, and subject type;
 - translated title, summary, and audience;
-- deterministic timing metadata and default reminders;
-- confidence/applicability risk;
-- source URL and catalog review date.
+- typed applicability and evidence requirements;
+- specificity, review state, timing metadata, and automation permission;
+- one or more normalized official sources and a verification date.
 
 The matcher is intentionally constrained and explainable. High-risk items remain advisory and require explicit user review. Catalog updates never silently overwrite a user-confirmed date.
 
@@ -50,9 +53,11 @@ Recurring rules are expanded over a bounded 24-month window. All-day `VALUE=DATE
 - Dockerized Next.js App Router on Node;
 - Auth.js with Google and optional generic OIDC;
 - PostgreSQL tenant model and row-level isolation contracts;
-- account → people → citizenships/country contexts → legalization paths/status documents;
-- account → assets → asset-person roles → asset documents;
-- account → obligations with an explicit account/person/asset subject and a separate responsible person;
+- household → people → citizenships/country contexts → legal routes/route parties;
+- household → exact assets → jurisdiction roles/asset-person roles;
+- one issued-document table with an explicit person or asset subject;
+- household → obligations with an explicit household/person/asset subject and a separate responsible person;
+- immutable registry rules/sources separated from the localized publishable overlay;
 - background reminder worker and idempotent delivery keys;
 - English, Russian, and Uzbek locale routing;
 - downloadable/subscribed ICS first, direct calendar OAuth later;
@@ -62,4 +67,4 @@ Sign-in and calendar OAuth are separate. Calendar tokens require independent enc
 
 ## Verification
 
-The automated suite covers strict dates, month-end recurrence, route-aware Russia employment matching, EAEU exclusions, one checklist per exact vehicle, slash reminder validation, bounded recurrence, status calculation, ICS structure, and malformed backup rejection. Browser QA covers searchable country pickers, Italy route isolation, Russia patent setup, Plan filters, per-country possessions, person/asset CRUD, catalog filters, all three locales, and mobile/desktop layouts.
+The automated suite covers registry counts and references, v4→v5 migration, subject invariants, multi-role assets, strict dates, month-end recurrence, route-aware Russia employment matching, EAEU exclusions, exact-vehicle checklists, slash reminder validation, bounded recurrence, ICS structure, and malformed backup rejection. Browser QA covers progressive context fields, Russia patent setup, Plan action groups and filters, per-country possessions, CRUD, all three registry tiers, and mobile/desktop layouts.

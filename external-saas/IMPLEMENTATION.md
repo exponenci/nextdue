@@ -1,6 +1,6 @@
 # Runnable scaffold
 
-This directory now contains an executable external-hosting foundation in addition to the product and operations documents.
+This directory contains the authenticated NextDue workspace and its production APIs, not only a landing-page scaffold.
 
 ## Local development
 
@@ -39,11 +39,21 @@ Generic OIDC activates only when `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIE
 
 - `src/db/schema.ts` is the typed Drizzle schema.
 - `src/db/migrations/0000_initial.sql` creates the original scaffold; `0001_domain_v2.sql` preserves those private tables under `legacy_*_v1`, imports deterministic data, and creates the normalized household graph.
+- `src/db/migrations/0002_production_workflows.sql` adds revisioned household snapshots, separate rule candidates, notification routing/preferences, feed controls and editorial revision/correction records.
 - `src/db/migrate.ts` is a checksum-protected migration runner.
 - `src/db/tenant.ts` sets the user and household context transaction-locally before tenant queries.
 - Required graph edges use composite `(entity_id, household_id)` foreign keys. Optional `SET NULL` edges use guarded triggers, so no person, asset, route, document, or obligation can be linked across households.
 
 The application database role should not own the protected tables in a mature production deployment; use a migration owner and a restricted runtime role so PostgreSQL RLS cannot be bypassed by ordinary application queries.
+
+## Authenticated product workflow
+
+- `/{locale}/app` requires an Auth.js session and hosts the complete workspace.
+- `/api/state` provides tenant-scoped optimistic cross-device sync; a conflict reloads the newer revision.
+- Static v4/v5 backups migrate to v6 and can be imported through the workspace.
+- `/api/export`, `/api/account`, and `/api/account/sessions` implement export, hard deletion and session revocation controls.
+- `/api/calendar-feeds` creates or revokes hashed subscription tokens; `/calendar/{token}` serves privacy-safe ICS without calendar-provider OAuth.
+- The snapshot is an explicit migration bridge. Normalized domain tables remain the long-term write model.
 
 ## Catalog status
 

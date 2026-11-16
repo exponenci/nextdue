@@ -1,220 +1,77 @@
 {
-  "schema_version": "1.0",
-  "model_name": "NextDue normalized rule workbook and server model",
+  "schema_version": "2.0",
+  "model_name": "NextDue canonical rule workbook and household graph",
+  "implementation_authority": {
+    "typed_schema": "external-saas/src/db/schema.ts",
+    "migration_history": "external-saas/src/db/migrations",
+    "browser_state": "dist/domain.mjs",
+    "note": "This file describes stable entity boundaries for research exports; executable SQL migrations remain authoritative."
+  },
   "principles": [
-    "Account is the tenant and authorization boundary; it does not replace the person or asset that a record is about.",
-    "Citizenship, country presence, purpose, legal route and issued documents are separate records.",
-    "A broad purpose never implies an exact route code or document.",
-    "Assets and asset documents are exact-object records scoped to their own jurisdiction.",
-    "An asset belongs to one account and links to one or more people through explicit owner, keeper or operator roles.",
-    "An obligation belongs to one account and has one explicit primary subject: account, person or asset; responsibility is stored separately.",
-    "Rules describe conditional candidates; obligations are instantiated only after facts are matched or confirmed.",
-    "Unknown deadlines remain null and user-confirmed rather than receiving an invented date."
+    "Household is the tenant and authorization boundary; it does not replace the person, asset, document or obligation that a record is about.",
+    "Citizenship, country context, purpose, legal route, route party and issued document are separate records.",
+    "An exact asset has repeatable country jurisdictions and repeatable dated person roles.",
+    "IssuedDocument has exactly one person or asset subject; there is no separate AssetDocument model.",
+    "RuleCandidate is separate from Obligation. Acceptance creates an obligation; dismissal is audited.",
+    "An Obligation has exactly one household, person or asset subject and a separate optional responsible person.",
+    "Unknown routes, applicability and deadlines stay unresolved; no value is inferred from a broad purpose."
   ],
-  "enums": {
-    "purposes": [
-      {"code":"any","label":"Not purpose-specific"},
-      {"code":"visit","label":"Visit or tourism"},
-      {"code":"work","label":"Work"},
-      {"code":"study","label":"Study or training"},
-      {"code":"family","label":"Family or dependant"},
-      {"code":"business","label":"Business or investment"},
-      {"code":"residence","label":"Long-term or permanent residence"},
-      {"code":"protection","label":"Protection or humanitarian"},
-      {"code":"other","label":"Other confirmed purpose"},
-      {"code":"unknown","label":"Not yet confirmed"}
-    ],
-    "route_families": [
-      {"code":"short_visit","label":"Short visit or visa-exempt stay"},
-      {"code":"work_authorized","label":"Work-authorized route"},
-      {"code":"study_authorized","label":"Study or training route"},
-      {"code":"family_dependent","label":"Family, spouse or dependant route"},
-      {"code":"investment_business","label":"Investment or business route"},
-      {"code":"talent_specialist","label":"Talent or specialist route"},
-      {"code":"retirement_second_home","label":"Retirement or second-home route"},
-      {"code":"humanitarian_special","label":"Humanitarian or special route"},
-      {"code":"temporary_residence","label":"Temporary or limited residence"},
-      {"code":"long_term_residence","label":"Long-term residence"},
-      {"code":"permanent_residence","label":"Permanent residence"},
-      {"code":"citizen","label":"Citizen; no immigration route"},
-      {"code":"other","label":"Other exact route"},
-      {"code":"unknown","label":"Route not yet confirmed"}
-    ],
-    "requirement_types": [
-      {"code":"entry_permission","label":"Visa, entry or authorized-stay record"},
-      {"code":"immigration_status","label":"Immigration status record"},
-      {"code":"work_authorization","label":"Work authorization or exemption"},
-      {"code":"study_permission","label":"Study or training permission"},
-      {"code":"family_status","label":"Family, spouse or dependant status"},
-      {"code":"residence_status","label":"Residence permit or card"},
-      {"code":"permanent_residence","label":"Permanent-residence route or status"},
-      {"code":"address_registration","label":"Address or arrival registration"},
-      {"code":"issued_document","label":"Issued document to track"},
-      {"code":"notification","label":"Notification or report"},
-      {"code":"payment","label":"Payment, tax or fee"},
-      {"code":"asset_checklist","label":"Exact-asset official-list check"},
-      {"code":"asset_document","label":"Exact-asset document"},
-      {"code":"other","label":"Other confirmed requirement"}
-    ],
-    "actors": [
-      {"code":"applicant","label":"Applicant or status holder"},
-      {"code":"dependant","label":"Dependant"},
-      {"code":"sponsor","label":"Sponsor or principal holder"},
-      {"code":"employer","label":"Employer"},
-      {"code":"institution","label":"Educational institution"},
-      {"code":"host","label":"Host or accommodation provider"},
-      {"code":"asset_owner","label":"Asset owner"},
-      {"code":"asset_keeper_operator","label":"Asset keeper or operator"},
-      {"code":"authority","label":"Government authority"},
-      {"code":"applicant_and_employer","label":"Applicant and employer"},
-      {"code":"applicant_and_institution","label":"Applicant and institution"},
-      {"code":"applicant_and_sponsor","label":"Applicant and sponsor"},
-      {"code":"applicant_employer_and_sponsor","label":"Applicant, employer and sponsor"},
-      {"code":"user_confirmed","label":"User-selected responsible party"}
-    ],
-    "deadline_types": [
-      {"code":"printed_expiry","label":"Date printed on an issued record"},
-      {"code":"event_relative","label":"Relative to a confirmed event"},
-      {"code":"fixed_date","label":"Fixed calendar date from a reviewed rule"},
-      {"code":"periodic","label":"Reviewed periodic recurrence"},
-      {"code":"authority_notice","label":"Date controlled by an authority notice"},
-      {"code":"user_confirmed","label":"Date entered or confirmed by the user"},
-      {"code":"not_applicable","label":"No deadline for this record"},
-      {"code":"unresolved","label":"Timing not yet supported"}
-    ],
-    "review_statuses": [
-      {"code":"mapped","label":"Route or record family mapped from an official source; not publishable as an exact rule"},
-      {"code":"partial","label":"Some applicability fields are supported; material conditions remain unresolved"},
-      {"code":"unresolved","label":"Research placeholder requiring a stronger or more specific official source"},
-      {"code":"verified","label":"Applicability and timing reviewed against the cited official source"},
-      {"code":"publishable","label":"Verified and approved for user-facing automatic matching"},
-      {"code":"retired","label":"No longer active; retained for history"}
-    ],
-    "rule_specificities": [
-      {"code":"exact_national_rule","label":"Exact national rule, document or duty supported by the cited source"},
-      {"code":"route_mapping","label":"Named legal route or status family supported by the cited source; detailed duties may remain unresolved"},
-      {"code":"research_prompt","label":"Source-backed research prompt that must not be counted as a verified legal obligation"}
-    ],
-    "confidence_levels": [
-      {"code":"high","label":"Direct official support for the broad mapping"},
-      {"code":"medium","label":"Official support exists but exact scope or route details remain incomplete"},
-      {"code":"low","label":"Product-level research mapping only; do not assert applicability"}
-    ],
-    "citizenship_scope_types": ["all","destination_citizen","non_destination_citizen","specific_citizenships","excluded_citizenships","eligibility_specific"],
-    "person_roles": ["applicant","principal","dependant","sponsor","owner","keeper_operator"],
-    "country_context_types": ["usual_residence","current_residence","physical_stay","destination","planned_move","tax_residence","previous_residence"],
-    "asset_types": ["any","real_property","land","vehicle","watercraft","business","other"],
-    "asset_person_roles": ["owner","co_owner","registered_owner","keeper","operator","taxpayer","responsible_person"],
-    "obligation_subject_types": ["account","person","asset"],
-    "confirmation_states": ["unconfirmed","user_confirmed","authority_confirmed","superseded"]
+  "stable_enums": {
+    "country_context_types": ["usual_residence", "lives_now", "physical_stay", "destination", "planned_trip", "planned_move", "tax_residence", "previous_residence"],
+    "purposes": ["visit", "work", "study", "family", "business", "protection", "long_term", "unknown"],
+    "legal_route_stages": ["exploring", "preparing", "applied", "active", "expired", "ended"],
+    "route_party_types": ["employer", "sponsor", "institution", "host", "principal"],
+    "asset_jurisdiction_roles": ["location", "registration", "tax", "ownership", "use", "incorporation", "other"],
+    "asset_person_roles": ["owner", "co_owner", "registered_owner", "keeper", "operator", "taxpayer", "responsible_person"],
+    "document_subject_types": ["person", "asset"],
+    "obligation_subject_types": ["household", "person", "asset"],
+    "candidate_statuses": ["pending", "accepted", "dismissed", "superseded"],
+    "deadline_kinds": ["unresolved", "expiry", "due_once", "recurring"],
+    "deadline_sources": ["unresolved", "printed_document", "official_notice", "user_confirmed", "rule_calculated"],
+    "rule_specificities": ["exact_national_rule", "route_mapping", "research_prompt"],
+    "runtime_tiers": ["ready", "confirm", "research"]
   },
   "rule_schema": {
     "primary_key": "rule_id",
     "fields": [
-      "rule_id","destination_country","authority_level","citizenship_scope_type","citizenship_values","residence_or_entry_scope","purpose","route_code","person_role","family_condition","employer_condition","institution_condition","asset_type","asset_condition","condition_expression","requirement_type","requirement_name","actor","trigger_event","deadline_type","deadline_value","deadline_unit","recurrence","required_evidence","exceptions","source_ids","effective_from","effective_to","last_verified","review_status","confidence","notes","rule_specificity"
+      "rule_id", "destination_country", "authority_level", "citizenship_scope_type", "citizenship_values",
+      "residence_or_entry_scope", "purpose", "route_code", "person_role", "family_condition", "employer_condition",
+      "institution_condition", "asset_type", "asset_condition", "condition_expression", "requirement_type",
+      "requirement_name", "actor", "trigger_event", "deadline_type", "deadline_value", "deadline_unit", "recurrence",
+      "required_evidence", "exceptions", "source_ids", "effective_from", "effective_to", "last_verified",
+      "review_status", "confidence", "notes", "rule_specificity", "runtime_tier"
     ],
-    "array_fields": ["citizenship_values","required_evidence","exceptions","source_ids"],
-    "nullable_fields": ["family_condition","employer_condition","institution_condition","asset_type","asset_condition","deadline_value","deadline_unit","recurrence","effective_from","effective_to"],
-    "matching_contract": "A rule is a candidate only when every non-null condition dimension matches. Only exact_national_rule rows may become automatic legal obligations after review; route_mapping and research_prompt rows require explicit confirmation and further rule-level research."
+    "matching_contract": "Only verified/publishable exact_national_rule rows can create automatic RuleCandidates. No registry row directly creates a confirmed Obligation or invents a due date."
   },
   "source_schema": {
     "primary_key": "source_id",
-    "fields": ["source_id","authority","title","url","jurisdiction","language","publication_or_effective_date","last_verified","source_type","notes"],
-    "nullable_fields": ["publication_or_effective_date"]
+    "fields": ["source_id", "authority", "title", "url", "jurisdiction", "language", "publication_or_effective_date", "last_verified", "source_type", "notes"]
   },
-  "server_model": {
-    "entities": [
-      {
-        "name":"Account",
-        "primary_key":"account_id",
-        "fields":["account_id:uuid","display_label:string?","default_locale:string?","default_timezone:string?","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"Person",
-        "primary_key":"person_id",
-        "fields":["person_id:uuid","account_id:uuid","display_label:string","date_of_birth:date?","relationship_to_account_holder:string?","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"Citizenship",
-        "primary_key":"citizenship_id",
-        "fields":["citizenship_id:uuid","person_id:uuid","country_code:char(2)","acquired_on:date?","ended_on:date?","evidence_document_id:uuid?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"],
-        "unique_constraints":["person_id,country_code,acquired_on"]
-      },
-      {
-        "name":"CountryContext",
-        "primary_key":"country_context_id",
-        "fields":["country_context_id:uuid","person_id:uuid","country_code:char(2)","context_type:enum","subdivision_code:string?","starts_on:date?","ends_on:date?","purpose:enum?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"LegalRoute",
-        "primary_key":"legal_route_id",
-        "fields":["legal_route_id:uuid","person_id:uuid","country_context_id:uuid","purpose:enum","route_family:enum","exact_route_code:string?","exact_issued_title:string?","person_role:enum","principal_person_id:uuid?","employer_label:string?","institution_label:string?","sponsor_label:string?","valid_from:date?","valid_until:date?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"IssuedDocument",
-        "primary_key":"issued_document_id",
-        "fields":["issued_document_id:uuid","person_id:uuid","legal_route_id:uuid?","country_code:char(2)","document_type:string","exact_title:string","exact_code:string?","identifier_suffix:string?","issuing_authority:string?","issued_on:date?","valid_from:date?","valid_until:date?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"FamilyLink",
-        "primary_key":"family_link_id",
-        "fields":["family_link_id:uuid","from_person_id:uuid","to_person_id:uuid","relationship_type:string","starts_on:date?","ends_on:date?","evidence_document_id:uuid?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"],
-        "unique_constraints":["from_person_id,to_person_id,relationship_type,starts_on"]
-      },
-      {
-        "name":"Asset",
-        "primary_key":"asset_id",
-        "fields":["asset_id:uuid","account_id:uuid","country_code:char(2)","subdivision_code:string?","asset_type:enum","asset_subtype:string?","display_label:string","use_type:string?","acquired_on:date?","disposed_on:date?","status:string","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"AssetDocument",
-        "primary_key":"asset_document_id",
-        "fields":["asset_document_id:uuid","asset_id:uuid","document_type:string","exact_title:string","exact_code:string?","identifier_suffix:string?","issuing_authority:string?","issued_on:date?","valid_from:date?","valid_until:date?","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"Rule",
-        "primary_key":"rule_id",
-        "fields":["rule_id:string","destination_country:char(2)","authority_level:string","citizenship_scope_type:enum","citizenship_values:json","residence_or_entry_scope:string","purpose:enum","route_code:string","person_role:enum","family_condition:text?","employer_condition:text?","institution_condition:text?","asset_type:enum?","asset_condition:text?","condition_expression:json","requirement_type:enum","requirement_name:string","actor:enum","trigger_event:string","deadline_type:enum","deadline_value:json?","deadline_unit:string?","recurrence:string?","required_evidence:json","exceptions:json","effective_from:date?","effective_to:date?","last_verified:date","review_status:enum","confidence:enum","notes:text?","rule_specificity:enum","created_at:timestamp","updated_at:timestamp"]
-      },
-      {
-        "name":"Obligation",
-        "primary_key":"obligation_id",
-        "fields":["obligation_id:uuid","account_id:uuid","subject_type:enum","person_id:uuid?","asset_id:uuid?","responsible_person_id:uuid?","rule_id:string?","country_context_id:uuid?","legal_route_id:uuid?","asset_document_id:uuid?","title:string","actor:enum","trigger_event:string?","due_on:date?","recurrence:string?","deadline_source:string","status:string","confirmation_state:enum","created_at:timestamp","updated_at:timestamp"],
-        "check_constraints":["(subject_type='account' AND person_id IS NULL AND asset_id IS NULL) OR (subject_type='person' AND person_id IS NOT NULL AND asset_id IS NULL) OR (subject_type='asset' AND asset_id IS NOT NULL AND person_id IS NULL)"],
-        "tenant_constraint":"All referenced Person, Asset, CountryContext and LegalRoute records must have the same account_id as the Obligation."
-      },
-      {
-        "name":"Source",
-        "primary_key":"source_id",
-        "fields":["source_id:string","authority:string","title:string","url:string","jurisdiction:string","language:string","publication_or_effective_date:date?","last_verified:date","source_type:string","notes:text?","created_at:timestamp","updated_at:timestamp"]
-      }
-    ],
-    "join_entities": [
-      {"name":"AssetPersonRole","fields":["asset_person_role_id:uuid","account_id:uuid","person_id:uuid","asset_id:uuid","role:enum","share:decimal?","starts_on:date?","ends_on:date?","created_at:timestamp","updated_at:timestamp"],"primary_key":"asset_person_role_id","unique_constraints":["person_id,asset_id,role,starts_on"],"tenant_constraint":"Person and Asset must belong to account_id."},
-      {"name":"RuleSource","fields":["rule_id:string","source_id:string","support_scope:string?"],"primary_key":"rule_id,source_id"}
-    ],
-    "relationships": [
-      {"from":"Account","to":"Person","cardinality":"one_to_many","foreign_key":"Person.account_id"},
-      {"from":"Account","to":"Asset","cardinality":"one_to_many","foreign_key":"Asset.account_id"},
-      {"from":"Account","to":"AssetPersonRole","cardinality":"one_to_many","foreign_key":"AssetPersonRole.account_id"},
-      {"from":"Account","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.account_id"},
-      {"from":"Person","to":"Citizenship","cardinality":"one_to_many","foreign_key":"Citizenship.person_id"},
-      {"from":"Person","to":"CountryContext","cardinality":"one_to_many","foreign_key":"CountryContext.person_id"},
-      {"from":"Person","to":"LegalRoute","cardinality":"one_to_many","foreign_key":"LegalRoute.person_id"},
-      {"from":"CountryContext","to":"LegalRoute","cardinality":"one_to_many","foreign_key":"LegalRoute.country_context_id"},
-      {"from":"LegalRoute","to":"IssuedDocument","cardinality":"one_to_many","foreign_key":"IssuedDocument.legal_route_id"},
-      {"from":"Person","to":"IssuedDocument","cardinality":"one_to_many","foreign_key":"IssuedDocument.person_id"},
-      {"from":"Person","to":"FamilyLink","cardinality":"many_to_many_self","join_keys":"FamilyLink.from_person_id,FamilyLink.to_person_id"},
-      {"from":"Person","to":"Asset","cardinality":"many_to_many","join_entity":"AssetPersonRole"},
-      {"from":"Asset","to":"AssetDocument","cardinality":"one_to_many","foreign_key":"AssetDocument.asset_id"},
-      {"from":"Rule","to":"Source","cardinality":"many_to_many","join_entity":"RuleSource"},
-      {"from":"Rule","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.rule_id"},
-      {"from":"Person","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.person_id"},
-      {"from":"Person","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.responsible_person_id","meaning":"Responsibility is separate from the obligation's primary subject."},
-      {"from":"CountryContext","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.country_context_id"},
-      {"from":"LegalRoute","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.legal_route_id"},
-      {"from":"Asset","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.asset_id"},
-      {"from":"AssetDocument","to":"Obligation","cardinality":"one_to_many","foreign_key":"Obligation.asset_document_id"}
-    ]
+  "server_entities": [
+    {"name": "User", "tenant_scoped": false, "purpose": "Authenticated identity"},
+    {"name": "Household", "tenant_scoped": false, "purpose": "Authorization, billing and lifecycle boundary"},
+    {"name": "Membership", "tenant_scoped": true, "purpose": "User role in a household"},
+    {"name": "Person", "tenant_scoped": true, "purpose": "Human subject with no embedded citizenship or residence"},
+    {"name": "Citizenship", "tenant_scoped": true, "purpose": "Repeatable dated person-country citizenship"},
+    {"name": "CountryContext", "tenant_scoped": true, "purpose": "Repeatable dated person-country context"},
+    {"name": "LegalRoute", "tenant_scoped": true, "purpose": "Exact route/status for one country context"},
+    {"name": "RouteParty", "tenant_scoped": true, "purpose": "Employer, sponsor, institution, host or principal"},
+    {"name": "PersonRelationship", "tenant_scoped": true, "purpose": "Dated relationship between two people"},
+    {"name": "Asset", "tenant_scoped": true, "purpose": "Exact possession without an overloaded country or owner column"},
+    {"name": "AssetJurisdiction", "tenant_scoped": true, "purpose": "Repeatable location, registration, tax, use or incorporation country"},
+    {"name": "AssetPersonRole", "tenant_scoped": true, "purpose": "Repeatable dated owner, keeper, operator, taxpayer or responsible person"},
+    {"name": "IssuedDocument", "tenant_scoped": true, "subject": "exactly person or asset"},
+    {"name": "RuleCandidate", "tenant_scoped": true, "subject": "exactly household, person or asset", "purpose": "Human applicability decision before obligation creation"},
+    {"name": "Obligation", "tenant_scoped": true, "subject": "exactly household, person or asset", "responsibility": "optional separate responsible_person_id"},
+    {"name": "ReminderDelivery", "tenant_scoped": true, "purpose": "Idempotent channel delivery for one occurrence and offset"},
+    {"name": "CalendarFeed", "tenant_scoped": true, "purpose": "Hashed and revocable private subscription token"},
+    {"name": "AuditEvent", "tenant_scoped": true, "purpose": "Security and lifecycle audit trail"},
+    {"name": "RuleRevision", "tenant_scoped": false, "purpose": "Immutable editorial snapshot and approval state"},
+    {"name": "RuleCorrection", "tenant_scoped": false, "purpose": "Correction intake linked to a resolution revision"}
+  ],
+  "subject_constraints": {
+    "issued_document": "(subject_type='person' AND person_id IS NOT NULL AND asset_id IS NULL) OR (subject_type='asset' AND asset_id IS NOT NULL AND person_id IS NULL)",
+    "candidate_or_obligation": "(subject_type='household' AND person_id IS NULL AND asset_id IS NULL) OR (subject_type='person' AND person_id IS NOT NULL AND asset_id IS NULL) OR (subject_type='asset' AND asset_id IS NOT NULL AND person_id IS NULL)",
+    "tenant_invariant": "Every private reference must resolve to the same household_id; composite foreign keys and guarded optional-reference triggers enforce this."
   }
 }

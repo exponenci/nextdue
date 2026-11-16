@@ -5,10 +5,8 @@ import type { Provider } from "next-auth/providers";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { z } from "zod";
-import { db } from "@/src/db/client";
+import { db, sql } from "@/src/db/client";
 import {
-  households,
-  memberships,
   oauthAccounts,
   sessions,
   users,
@@ -55,7 +53,8 @@ if (devBypass) {
     credentials: {},
     async authorize() {
       const email = z.string().email().parse(process.env.DEV_AUTH_EMAIL || "developer@nextdue.local");
-      return { id: "development-user", email, name: "Development user" };
+      const id = z.string().uuid().parse(process.env.DEV_AUTH_USER_ID || "00000000-0000-4000-8000-000000000001");
+      return { id, email, name: "Development user" };
     }
   }));
 }
@@ -88,11 +87,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   events: {
     async createUser({ user }) {
-      if (!user.id) return;
-      const [household] = await db.insert(households).values({
-        name: user.name ? `${user.name}'s household` : "My household"
-      }).returning({ id: households.id });
-      await db.insert(memberships).values({ householdId: household.id, userId: user.id, role: "owner" });
+      const userId = user.id;
+      if (!userId) return;
+      await sql.begin(async (transaction) => {
+        await transaction`select set_config('app.current_user_id', ${userId}, true)`;
+        await transaction`select app.create_personal_household(${userId}, ${user.name ? `${user.name}'s household` : "My household"})`;
+      });
     },
     async linkAccount({ account }) {
       // Sign-in tokens are not retained. Calendar access uses a separate consent flow and encrypted store.

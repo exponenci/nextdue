@@ -44,6 +44,25 @@ export class ResendEmailAdapter implements NotificationAdapter {
   }
 }
 
+export async function queueDueReminderDeliveries(database: Database): Promise<number> {
+  const queued = await database<{ id: string }[]>`
+    insert into app.reminder_deliveries (
+      household_id, obligation_id, occurrence_date, offset_days, channel, status, next_attempt_at
+    )
+    select obligation.household_id, obligation.id, obligation.due_on, offset_days, 'email', 'pending', now()
+    from app.obligations obligation
+    cross join lateral unnest(obligation.reminder_offsets) as offset_days
+    where obligation.status = 'active'
+      and obligation.applicability = 'confirmed'
+      and obligation.due_on is not null
+      and obligation.due_on - offset_days <= current_date
+      and obligation.due_on >= current_date
+    on conflict (household_id, obligation_id, occurrence_date, offset_days, channel) do nothing
+    returning id
+  `;
+  return queued.length;
+}
+
 export async function runReminderSweep(
   database: Database,
   adapter: NotificationAdapter,
@@ -65,11 +84,24 @@ export async function runReminderSweep(
       app.obligations obligation,
       lateral (
         select user_account.email
-        from app.memberships membership
-        join app.users user_account on user_account.id = membership.user_id
-        where membership.household_id = delivery.household_id
-          and membership.role in ('owner', 'admin')
-        order by case membership.role when 'owner' then 0 else 1 end
+        from (
+          select mapping.user_id, 0 as priority
+          from app.person_notification_recipients mapping
+          where mapping.household_id = delivery.household_id
+            and mapping.person_id = obligation.responsible_person_id
+            and mapping.channel = 'email'
+            and mapping.enabled
+          union all
+          select membership.user_id, case membership.role when 'owner' then 10 else 11 end
+          from app.memberships membership
+          where membership.household_id = delivery.household_id
+            and membership.role in ('owner', 'admin')
+        ) choice
+        join app.users user_account on user_account.id = choice.user_id
+        left join app.notification_preferences preference
+          on preference.household_id = delivery.household_id and preference.user_id = choice.user_id
+        where coalesce(preference.email_enabled, true)
+        order by choice.priority
         limit 1
       ) recipient
     where delivery.id = ready.id

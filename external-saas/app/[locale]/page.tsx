@@ -9,6 +9,7 @@ const copy = {
     body: "NextDue maps people, possessions and jurisdictions to an evidence-backed set of documents and obligations.",
     signIn: "Sign in",
     signedIn: "Signed in as",
+    openApp: "Open workspace",
     model: "Households → people → jurisdictions → assets → obligations",
     note: "Google sign-in and Calendar access are separate consent flows."
   },
@@ -18,6 +19,7 @@ const copy = {
     body: "NextDue связывает людей, имущество и юрисдикции с проверяемым каталогом документов и обязанностей.",
     signIn: "Войти",
     signedIn: "Вы вошли как",
+    openApp: "Открыть рабочее пространство",
     model: "Семья → люди → юрисдикции → имущество → обязанности",
     note: "Вход через Google и доступ к календарю — разные согласия."
   },
@@ -27,6 +29,7 @@ const copy = {
     body: "NextDue odamlar, mulklar va yurisdiksiyalarni tekshiriladigan hujjatlar va majburiyatlar katalogi bilan bog‘laydi.",
     signIn: "Kirish",
     signedIn: "Tizimga kirgan foydalanuvchi",
+    openApp: "Ish maydonini ochish",
     model: "Oila → odamlar → yurisdiksiyalar → mulklar → majburiyatlar",
     note: "Google orqali kirish va Calendar ruxsati alohida rozilik jarayonlaridir."
   }
@@ -54,7 +57,7 @@ export default async function LocalePage({ params }: { params: Promise<{ locale:
       <p className="eyebrow">{text.eyebrow}</p>
       <h1>{text.title}</h1>
       <p className="lead">{text.body}</p>
-      {session?.user ? <p className="session">{text.signedIn} <strong>{session.user.email}</strong></p> :
+      {session?.user ? <div className="signed-in"><p className="session">{text.signedIn} <strong>{session.user.email}</strong></p><Link className="button" href={`/${locale}/app`}>{text.openApp}</Link></div> :
         <Link className="button" href="/api/auth/signin">{text.signIn}</Link>}
     </section>
     <section className="model-card">

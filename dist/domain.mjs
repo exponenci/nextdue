@@ -1,4 +1,4 @@
-export const DOMAIN_SCHEMA_VERSION = 5;
+export const DOMAIN_SCHEMA_VERSION = 6;
 
 export const ASSET_PERSON_ROLES = [
   "owner",
@@ -42,6 +42,7 @@ export function emptyDomainState(locale = "en") {
     assetJurisdictions: [],
     assetPersonRoles: [],
     issuedDocuments: [],
+    ruleCandidates: [],
     items: [],
     dismissedCatalogIds: [],
     settings: { privacySafeTitles: true, preparationMilestones: true, horizonMonths: 24 },
@@ -147,7 +148,7 @@ export function normalizeCatalogObligation(item, responsiblePersonId = null, app
   };
 }
 
-function normalizeExistingV5(value) {
+function normalizeCurrent(value) {
   const empty = emptyDomainState(value.locale || "en");
   return {
     ...empty,
@@ -163,13 +164,40 @@ function normalizeExistingV5(value) {
     assetJurisdictions: Array.isArray(value.assetJurisdictions) ? value.assetJurisdictions : [],
     assetPersonRoles: Array.isArray(value.assetPersonRoles) ? value.assetPersonRoles : [],
     issuedDocuments: Array.isArray(value.issuedDocuments) ? value.issuedDocuments : [],
+    ruleCandidates: Array.isArray(value.ruleCandidates) ? value.ruleCandidates : [],
     items: Array.isArray(value.items) ? value.items : [],
+  };
+}
+
+function candidateFromObligation(item, status = "pending") {
+  const { applicability, ...candidate } = normalizeCatalogObligation(item, item.responsiblePersonId || null, "candidate");
+  return {
+    ...candidate,
+    candidateStatus: status,
+    decidedAt: status === "pending" ? null : item.updatedAt || new Date().toISOString(),
   };
 }
 
 export function migrateDomainState(value) {
   if (!value || typeof value !== "object") return emptyDomainState();
-  if (value.version === DOMAIN_SCHEMA_VERSION) return normalizeExistingV5(value);
+  if (value.version === DOMAIN_SCHEMA_VERSION) return normalizeCurrent(value);
+
+  if (value.version === 5) {
+    const next = normalizeCurrent({ ...value, version: DOMAIN_SCHEMA_VERSION, ruleCandidates: [] });
+    next.items = [];
+    for (const item of value.items || []) {
+      if (item.provenance === "catalog" && item.applicability === "candidate") {
+        next.ruleCandidates.push(candidateFromObligation(item));
+      } else if (item.provenance === "catalog" && item.applicability === "not_applicable") {
+        next.ruleCandidates.push(candidateFromObligation(item, "dismissed"));
+      } else {
+        const normalized = normalizeCatalogObligation(item, item.responsiblePersonId || null, "confirmed");
+        normalized.applicability = "confirmed";
+        next.items.push(normalized);
+      }
+    }
+    return next;
+  }
 
   const next = emptyDomainState(value.locale || "en");
   next.onboarded = Boolean(value.onboarded);
@@ -264,11 +292,15 @@ export function migrateDomainState(value) {
     }
   }
 
-  next.items = (value.items || []).map((item) => normalizeCatalogObligation(
-    item,
-    item.responsiblePersonId || null,
-    item.applicability || (item.provenance === "catalog" ? "candidate" : "user_confirmed"),
-  ));
+  for (const item of value.items || []) {
+    if (item.provenance === "catalog" && (item.applicability || "candidate") === "candidate") {
+      next.ruleCandidates.push(candidateFromObligation(item));
+    } else if (item.provenance === "catalog" && item.applicability === "not_applicable") {
+      next.ruleCandidates.push(candidateFromObligation(item, "dismissed"));
+    } else {
+      next.items.push(normalizeCatalogObligation(item, item.responsiblePersonId || null, "confirmed"));
+    }
+  }
   return next;
 }
 

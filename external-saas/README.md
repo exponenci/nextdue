@@ -1,8 +1,8 @@
 # External SaaS deployment
 
-This directory defines the production boundary for hosting NextDue outside ChatGPT. The current private Site remains a product preview; it is not presented as the final public platform.
+This directory is the production boundary for hosting NextDue outside ChatGPT. It contains the authenticated workspace, PostgreSQL persistence, private feeds, export/deletion controls and reminder worker. The current ChatGPT Site remains a private preview.
 
-The scaffold is runnable and production-buildable. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for local commands, the reviewed 12-item catalog status, and verification details.
+The application is runnable and production-buildable. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for local commands, the 42-country registry status, and verification details.
 
 ## Chosen stack
 

@@ -15,8 +15,8 @@ Use one region for web, worker, and PostgreSQL.
 2. Build production Docker image.
 3. Apply migrations to an isolated test database.
 4. Run tenant-isolation tests with two households.
-5. Verify Google callback and session revocation.
-6. Verify account export and hard deletion.
+5. Verify Google callback and session revocation against the real provider.
+6. Re-run account export and hard deletion smoke tests against the deployed database.
 7. Deploy web, then worker.
 
 ## Operational controls
@@ -31,4 +31,4 @@ Use one region for web, worker, and PostgreSQL.
 
 ## Exit criteria
 
-Public launch is blocked until real OAuth, production database backup/restore, email delivery, tenant isolation, export/deletion, and catalog editorial review are verified.
+Code-controlled gates are implemented and migration-tested. Public launch remains blocked until real OAuth, production database backup/restore, live email delivery, the restricted runtime database role, deployment smoke tests and named catalog editorial ownership are verified in the production environment.

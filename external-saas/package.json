@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/core/reminders.test.ts src/catalog/catalog.test.ts",
+    "test": "node --import tsx --test src/core/*.test.ts src/catalog/catalog.test.ts src/db/*.test.ts src/server/*.test.ts",
     "catalog:validate": "node --import tsx src/catalog/validate.ts",
     "check": "npm run typecheck && npm test && npm run catalog:validate",
     "db:migrate": "node --import tsx src/db/migrate.ts",

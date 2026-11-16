@@ -2,3 +2,4 @@
 -- (`npm run db:migrate`) is the authoritative deployment path.
 \ir src/db/migrations/0000_initial.sql
 \ir src/db/migrations/0001_domain_v2.sql
+\ir src/db/migrations/0002_production_workflows.sql

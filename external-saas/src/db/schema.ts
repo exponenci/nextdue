@@ -2,6 +2,7 @@ import type { AdapterAccountType } from "next-auth/adapters";
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  bigint,
   check,
   date,
   foreignKey,
@@ -11,6 +12,7 @@ import {
   pgSchema,
   primaryKey,
   text,
+  time,
   timestamp,
   unique,
   uniqueIndex,
@@ -394,7 +396,10 @@ export const calendarFeeds = appSchema.table("calendar_feeds", {
   id: uuid("id").primaryKey().defaultRandom(),
   householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull().unique(),
+  name: text("name").notNull().default("NextDue"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
 });
 
@@ -405,5 +410,84 @@ export const auditEvents = appSchema.table("audit_events", {
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: text("entity_id"),
+  details: jsonb("details").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+});
+
+export const householdSnapshots = appSchema.table("household_snapshots", {
+  householdId: uuid("household_id").primaryKey().references(() => households.id, { onDelete: "cascade" }),
+  revision: bigint("revision", { mode: "number" }).notNull().default(1),
+  schemaVersion: integer("schema_version").notNull(),
+  state: jsonb("state").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+});
+
+export const ruleCandidates = appSchema.table("rule_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  subjectType: text("subject_type").notNull().$type<"household" | "person" | "asset">(),
+  personId: uuid("person_id"),
+  assetId: uuid("asset_id"),
+  responsiblePersonId: uuid("responsible_person_id").references(() => people.id, { onDelete: "set null" }),
+  sourceRuleId: text("source_rule_id").references(() => registryRules.id, { onDelete: "set null" }),
+  catalogItemId: text("catalog_item_id"),
+  catalogVersion: text("catalog_version"),
+  countryCode: text("country_code").notNull(),
+  title: text("title").notNull(),
+  reason: text("reason"),
+  proposedSchedule: jsonb("proposed_schedule").notNull().default({}),
+  proposedReminderInput: text("proposed_reminder_input").notNull().default(""),
+  status: text("status").notNull().default("pending").$type<"pending" | "accepted" | "dismissed" | "superseded">(),
+  decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  obligationId: uuid("obligation_id").references(() => obligations.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+}, (table) => [index("rule_candidates_household_status_idx").on(table.householdId, table.status)]);
+
+export const personNotificationRecipients = appSchema.table("person_notification_recipients", {
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  personId: uuid("person_id").notNull().references(() => people.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull().default("email").$type<"email">(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+}, (table) => [primaryKey({ columns: [table.householdId, table.personId, table.userId, table.channel] })]);
+
+export const notificationPreferences = appSchema.table("notification_preferences", {
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  emailEnabled: boolean("email_enabled").notNull().default(true),
+  locale: text("locale").notNull().default("en"),
+  quietHoursStart: time("quiet_hours_start"),
+  quietHoursEnd: time("quiet_hours_end"),
+  timezone: text("timezone").notNull().default("UTC"),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow()
+}, (table) => [primaryKey({ columns: [table.householdId, table.userId] })]);
+
+export const registryRuleRevisions = appSchema.table("registry_rule_revisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ruleId: text("rule_id").notNull().references(() => registryRules.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  status: text("status").notNull().$type<"draft" | "in_review" | "published" | "superseded" | "rejected">(),
+  snapshot: jsonb("snapshot").notNull(),
+  changeSummary: text("change_summary").notNull(),
+  sourceSnapshot: jsonb("source_snapshot").notNull().default([]),
+  createdBy: text("created_by").notNull(),
+  reviewedBy: text("reviewed_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" })
+}, (table) => [uniqueIndex("registry_rule_revisions_rule_revision_idx").on(table.ruleId, table.revision)]);
+
+export const registryCorrections = appSchema.table("registry_corrections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ruleId: text("rule_id").references(() => registryRules.id, { onDelete: "set null" }),
+  sourceUrl: text("source_url"),
+  report: text("report").notNull(),
+  status: text("status").notNull().default("open").$type<"open" | "triaged" | "in_review" | "resolved" | "rejected">(),
+  submittedBy: uuid("submitted_by").references(() => users.id, { onDelete: "set null" }),
+  resolutionRevisionId: uuid("resolution_revision_id").references(() => registryRuleRevisions.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: "date" })
 });

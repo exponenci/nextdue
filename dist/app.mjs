@@ -20,7 +20,9 @@ const DB_NAME = "nextdue-local";
 const DB_VERSION = 1;
 const STORE_NAME = "state";
 const STATE_KEY = "app";
+const SAAS_MODE = new URLSearchParams(window.location.search).get("mode") === "saas";
 const TEST_MODE_RESET_ON_LOAD = true;
+let remoteRevision = 0;
 
 const COUNTRIES = [
   ["", "—"], ["RU", "Russia"], ["UZ", "Uzbekistan"], ["KZ", "Kazakhstan"], ["KG", "Kyrgyzstan"], ["TJ", "Tajikistan"],
@@ -136,6 +138,14 @@ async function resetStoredStateForTestMode() {
 }
 
 async function loadState() {
+  if (SAAS_MODE) {
+    dbMode = "remote";
+    const response = await fetch("/api/state", { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error(`Unable to load your household (${response.status}).`);
+    const payload = await response.json();
+    remoteRevision = payload.revision || 0;
+    return payload.state ? validateBackup(migrateState(payload.state)) : defaultState();
+  }
   try {
     const db = await openDatabase();
     const value = await new Promise((resolve, reject) => {
@@ -153,6 +163,33 @@ async function loadState() {
 
 async function persistState() {
   state.updatedAt = new Date().toISOString();
+  if (SAAS_MODE) {
+    try {
+      const response = await fetch("/api/state", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ revision: remoteRevision, state }),
+      });
+      if (response.status === 409) {
+        const latest = await fetch("/api/state", { cache: "no-store", credentials: "same-origin" });
+        const payload = await latest.json();
+        remoteRevision = payload.revision || 0;
+        state = payload.state ? validateBackup(migrateState(payload.state)) : defaultState();
+        render();
+        announce(tx("Newer changes were found and loaded. Please try again.", "Найдены и загружены более новые изменения. Повторите действие.", "Yangi o‘zgarishlar topildi va yuklandi. Qayta urinib ko‘ring."));
+        return false;
+      }
+      if (!response.ok) throw new Error(`Save failed (${response.status}).`);
+      const payload = await response.json();
+      remoteRevision = payload.revision;
+      return true;
+    } catch (error) {
+      announce(tx("Could not sync changes. Your previous cloud version is safe.", "Не удалось синхронизировать изменения. Предыдущая облачная версия сохранена.", "O‘zgarishlarni sinxronlab bo‘lmadi. Oldingi bulut versiyasi saqlangan."));
+      console.error(error);
+      return false;
+    }
+  }
   try {
     if (dbMode === "localstorage") throw new Error("fallback");
     const db = await openDatabase();
@@ -247,6 +284,32 @@ function itemPersonId(item) { return item.subjectType === "person" ? item.person
 function itemAssetId(item) { return item.subjectType === "asset" ? item.assetId : null; }
 function itemTitle(item) { const entry = item.catalogId ? CATALOG.find((catalogItem) => catalogItem.id === item.catalogId) : null; return entry ? localized(entry.title, state.locale) : item.title; }
 function announce(message) { const toast = document.querySelector("#toast"); toast.textContent = message; toast.classList.add("show"); window.setTimeout(() => toast.classList.remove("show"), 2800); }
+function clearFormErrors(form) {
+  form.querySelector(".form-error-summary")?.remove();
+  for (const input of form.querySelectorAll('[aria-invalid="true"]')) input.removeAttribute("aria-invalid");
+  for (const error of form.querySelectorAll(".field-error")) error.remove();
+}
+function showFormErrors(form, errors) {
+  clearFormErrors(form);
+  if (!errors.length) return false;
+  const summary = document.createElement("div");
+  summary.className = "form-error-summary";
+  summary.setAttribute("role", "alert");
+  summary.tabIndex = -1;
+  summary.innerHTML = `<strong>${escapeHTML(tx("Check the highlighted fields", "Проверьте выделенные поля", "Belgilangan maydonlarni tekshiring"))}</strong><ul>${errors.map((error) => `<li>${escapeHTML(error.message)}</li>`).join("")}</ul>`;
+  form.querySelector(".modal-body")?.prepend(summary);
+  for (const error of errors) {
+    const input = form.elements[error.name];
+    if (!input || input instanceof RadioNodeList) continue;
+    input.setAttribute("aria-invalid", "true");
+    const message = document.createElement("small");
+    message.className = "field-error";
+    message.textContent = error.message;
+    input.closest("label")?.append(message);
+  }
+  summary.focus();
+  return true;
+}
 function setLanguage(locale) { state.locale = locale; document.documentElement.lang = locale === "uz-Latn" ? "uz" : locale; }
 function syncActiveCountries() {
   state.profile.activeCountries = [...new Set([
@@ -254,6 +317,7 @@ function syncActiveCountries() {
     ...(state.countryContexts || []).map((record) => record.country),
     ...(state.assetJurisdictions || []).map((record) => record.country),
     ...state.items.map((item) => item.country),
+    ...(state.ruleCandidates || []).map((candidate) => candidate.country),
   ].filter(Boolean))];
 }
 
@@ -275,18 +339,26 @@ function reconcileCatalogItems() {
     if (item.provenance !== "catalog" || !item.catalogId) return true;
     const entry = CATALOG.find((candidate) => candidate.id === item.catalogId);
     if (entry?.match?.kind === "manual") return true;
-    return matchedKeys.has(catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item)));
+    return true;
   });
-  const existingKeys = new Set(state.items.map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))));
+  state.ruleCandidates = (state.ruleCandidates || []).filter((candidate) => candidate.candidateStatus !== "pending" || matchedKeys.has(catalogItemKey(candidate.catalogId, itemPersonId(candidate), itemAssetId(candidate))));
+  const existingKeys = new Set([
+    ...state.items.map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))),
+    ...state.ruleCandidates.map((candidate) => catalogItemKey(candidate.catalogId, itemPersonId(candidate), itemAssetId(candidate))),
+  ]);
   for (const match of autoMatches) {
     const key = catalogItemKey(match.entry.id, match.subjectId, match.assetId);
     if (existingKeys.has(key)) continue;
-    state.items.push(normalizeCatalogObligation(makeItemFromCatalog(match, {
+    const candidate = normalizeCatalogObligation(makeItemFromCatalog(match, {
       title: localized(match.entry.title, state.locale),
       reason: localized(match.entry.summary, state.locale),
       catalogVersion: CATALOG_VERSION,
       person: personName(match.subjectId),
-    }), match.subjectId, "candidate"));
+    }), match.subjectId, "candidate");
+    delete candidate.applicability;
+    candidate.candidateStatus = "pending";
+    candidate.decidedAt = null;
+    state.ruleCandidates.push(candidate);
     existingKeys.add(key);
   }
 }
@@ -298,6 +370,7 @@ function removeAssetAndLinkedItems(currentState, assetId) {
     assetJurisdictions: currentState.assetJurisdictions.filter((record) => record.assetId !== assetId),
     assetPersonRoles: currentState.assetPersonRoles.filter((record) => record.assetId !== assetId),
     issuedDocuments: currentState.issuedDocuments.filter((record) => record.assetId !== assetId),
+    ruleCandidates: (currentState.ruleCandidates || []).filter((candidate) => candidate.assetId !== assetId),
     items: currentState.items.flatMap((item) => {
       if (item.assetId !== assetId) return [item];
       if (item.provenance === "catalog") return [];
@@ -323,7 +396,10 @@ function render() {
 
 function updateNavigationLabels() {
   for (const view of ["plan", "registry", "catalog", "settings"]) document.querySelectorAll(`[data-view="${view}"] .nav-label`).forEach((el) => { el.textContent = t(state.locale, view); });
-  const local = document.querySelector("#local-badge-copy"); if (local) local.innerHTML = `<strong>${t(state.locale, "privateByDefault")}</strong><small>${t(state.locale, "savedHere")}</small>`;
+  const local = document.querySelector("#local-badge-copy");
+  if (local) local.innerHTML = SAAS_MODE
+    ? `<strong>${tx("Private household", "Личное пространство", "Shaxsiy uy xo‘jaligi")}</strong><small>${tx("Synced securely", "Синхронизировано", "Xavfsiz sinxronlangan")}</small>`
+    : `<strong>${t(state.locale, "privateByDefault")}</strong><small>${t(state.locale, "savedHere")}</small>`;
   updateStaticLabels();
 }
 
@@ -506,13 +582,11 @@ function statusLabel(status) {
 }
 
 function itemActionState(item) {
-  if (item.applicability === "candidate") return "confirm";
   if (!parseISODate(item.schedule?.date)) return "date";
   return "scheduled";
 }
 
 function nextActionLabel(item) {
-  if (item.applicability === "candidate") return tx("Confirm whether this rule applies", "Подтвердите, применимо ли правило", "Qoida tegishli ekanini tasdiqlang");
   if (!parseISODate(item.schedule?.date)) return tx("Add the date to schedule reminders", "Добавьте дату, чтобы запланировать напоминания", "Eslatmalar uchun sanani kiriting");
   const dueDate = getNextOccurrence(item); const days = daysBetween(new Date(), dueDate);
   const offsets = item.reminderOffsets?.length ? item.reminderOffsets : [60, 30, 7]; const firstOffset = Math.max(...offsets);
@@ -537,8 +611,14 @@ function itemCard(item, calendar = true) {
   const status = getItemStatus(item); const actionState = itemActionState(item); const meta = CATEGORY_META[item.category] || CATEGORY_META.custom; const title = itemTitle(item);
   const subject = item.subjectType === "asset" ? assetName(item.assetId) : item.subjectType === "person" ? personName(item.personId) : tx("Household", "Семья", "Oila");
   const responsible = item.responsiblePersonId && !(item.subjectType === "person" && item.personId === item.responsiblePersonId) ? personName(item.responsiblePersonId) : "";
-  const badge = actionState === "confirm" ? { tone: "warning", label: tx("Confirm", "Уточнить", "Tasdiqlash") } : { tone: status.tone, label: statusLabel(status) };
+  const badge = { tone: status.tone, label: statusLabel(status) };
   return `<article class="item-card scope-card"><div class="item-icon category-${item.category}">${icon(meta.icon, 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-${badge.tone}">${badge.label}</span></div><p class="scope-line"><span>${COUNTRY_META[item.country]?.flag || "🌐"} ${escapeHTML(countryName(item.country))}</span><span>${escapeHTML(subject)}</span>${responsible ? `<span>${tx("Responsible", "Ответственный", "Mas’ul")}: ${escapeHTML(responsible)}</span>` : ""}</p><p class="item-meta">${escapeHTML(scheduleDescription(item))}</p><p class="next-action">${icon("arrow-bend", 15)} ${escapeHTML(nextActionLabel(item))}</p></div><div class="item-actions">${calendar && parseISODate(item.schedule?.date) ? `<button class="icon-button" data-action="calendar-menu" data-id="${item.id}" aria-label="${tx("Calendar options for", "Параметры календаря для", "Kalendar parametrlari")}: ${escapeHTML(title)}">${icon("calendar", 18)}</button>` : ""}<button class="icon-button" data-action="edit-item" data-id="${item.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(title)}">${icon("edit", 18)}</button></div></article>`;
+}
+
+function candidateCard(candidate) {
+  const title = itemTitle(candidate);
+  const subject = candidate.subjectType === "asset" ? assetName(candidate.assetId) : candidate.subjectType === "person" ? personName(candidate.personId) : tx("Household", "Семья", "Oila");
+  return `<article class="item-card scope-card candidate-card"><div class="item-icon category-${candidate.category}">${icon("info", 20)}</div><div class="item-main"><div class="item-title-row"><h3>${escapeHTML(title)}</h3><span class="status status-warning">${tx("Candidate", "Кандидат", "Nomzod")}</span></div><p class="scope-line"><span>${flagForCountry(candidate.country)} ${escapeHTML(countryName(candidate.country))}</span><span>${escapeHTML(subject)}</span></p><p class="item-meta">${escapeHTML(candidate.reason || tx("Matched from a reviewed rule.", "Подобрано по проверенному правилу.", "Tekshirilgan qoida asosida topildi."))}</p></div><div class="candidate-actions"><button class="secondary-button compact" data-action="dismiss-candidate" data-id="${candidate.id}">${tx("Not applicable", "Не применимо", "Tegishli emas")}</button><button class="primary-button compact" data-action="accept-candidate" data-id="${candidate.id}">${tx("Applies", "Применимо", "Tegishli")}</button></div></article>`;
 }
 
 function renderGroup(title, subtitle, items) { if (!items.length) return ""; return `<section class="item-group"><div class="section-heading"><div><h2>${title}</h2><p>${subtitle}</p></div><span class="count">${items.length}</span></div><div class="item-list">${items.map((item) => itemCard(item)).join("")}</div></section>`; }
@@ -551,17 +631,27 @@ function renderPlan() {
     if (planFilters.assetType !== "all" && linkedAsset?.type !== planFilters.assetType) return false;
     if (planFilters.assetId !== "all" && itemAssetId(item) !== planFilters.assetId) return false;
     const status = getItemStatus(item);
-    if (planFilters.status === "confirm" && (item.status !== "active" || item.applicability !== "candidate")) return false;
-    if (planFilters.status === "needs" && (item.status !== "active" || item.applicability === "candidate" || parseISODate(item.schedule?.date))) return false;
+    if (planFilters.status === "confirm") return false;
+    if (planFilters.status === "needs" && (item.status !== "active" || parseISODate(item.schedule?.date))) return false;
     if (planFilters.status === "now" && (item.status !== "active" || !["overdue", "now"].includes(status.key))) return false;
     if (planFilters.status === "completed" && item.status !== "completed") return false;
     return true;
   });
-  const dated = sortItems(filtered.filter((item) => parseISODate(item.schedule?.date) && item.status === "active" && item.applicability !== "candidate")); const toConfirm = filtered.filter((item) => item.status === "active" && item.applicability === "candidate"); const missing = filtered.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active" && item.applicability !== "candidate"); const groups = new Map();
+  const candidateFiltered = (state.ruleCandidates || []).filter((candidate) => {
+    if (candidate.candidateStatus !== "pending") return false;
+    if (planFilters.status !== "all" && planFilters.status !== "confirm") return false;
+    if (planFilters.country !== "all" && candidate.country !== planFilters.country) return false;
+    if (planFilters.personId !== "all" && candidate.personId !== planFilters.personId && candidate.responsiblePersonId !== planFilters.personId) return false;
+    const linkedAsset = candidate.assetId ? state.assets.find((asset) => asset.id === candidate.assetId) : null;
+    if (planFilters.assetType !== "all" && linkedAsset?.type !== planFilters.assetType) return false;
+    if (planFilters.assetId !== "all" && candidate.assetId !== planFilters.assetId) return false;
+    return true;
+  });
+  const dated = sortItems(filtered.filter((item) => parseISODate(item.schedule?.date) && item.status === "active")); const toConfirm = candidateFiltered; const missing = filtered.filter((item) => !parseISODate(item.schedule?.date) && item.status === "active"); const groups = new Map();
   dated.forEach((item) => { const key = getNextOccurrence(item).slice(0, 7); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
   const allActive = state.items.filter((item) => item.status === "active");
-  const confirmCount = allActive.filter((item) => item.applicability === "candidate").length;
-  const needsCount = allActive.filter((item) => item.applicability !== "candidate" && !parseISODate(item.schedule?.date)).length;
+  const confirmCount = (state.ruleCandidates || []).filter((candidate) => candidate.candidateStatus === "pending").length;
+  const needsCount = allActive.filter((item) => !parseISODate(item.schedule?.date)).length;
   const urgency = groupItemsForToday(allActive); const attention = urgency.now.length;
   const title = attention ? tx(`${attention} item${attention === 1 ? "" : "s"} need attention`, `${attention} ${attention === 1 ? "задача требует" : "задачи требуют"} внимания`, `${attention} ta vazifa e’tibor talab qiladi`) : confirmCount ? tx(`${confirmCount} rule${confirmCount === 1 ? "" : "s"} need confirmation`, `${confirmCount} правил нужно уточнить`, `${confirmCount} ta qoidani tasdiqlash kerak`) : needsCount ? tx(`${needsCount} dates need confirmation`, `${needsCount} дат нужно подтвердить`, `${needsCount} ta sanani tasdiqlash kerak`) : tx("Everything is on track", "Всё под контролем", "Hammasi nazoratda");
   const filterCount = [planFilters.country, planFilters.personId, planFilters.assetType, planFilters.assetId].filter((value) => value !== "all").length;
@@ -573,17 +663,25 @@ function renderPlan() {
     planFilters.assetType !== "all" ? `<button data-action="clear-plan-filter" data-filter="assetType">${escapeHTML(assetTypeLabel(planFilters.assetType))} ×</button>` : "",
     planFilters.assetId !== "all" ? `<button data-action="clear-plan-filter" data-filter="assetId">${escapeHTML(assetName(planFilters.assetId))} ×</button>` : "",
   ].filter(Boolean).join("");
-  const checklist = `${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), visibleGroups.now.filter((item) => item.applicability !== "candidate"))}${renderGroup(tx("Confirm applicability", "Уточнить применимость", "Tegishliligini tasdiqlash"), tx("Check whether each matched rule really applies to this person or possession.", "Проверьте, действительно ли правило относится к этому человеку или объекту.", "Har bir mos qoida shaxs yoki mulkka tegishli ekanini tekshiring."), toConfirm)}${renderGroup(t(state.locale, "addDates"), tx("Add an exact date to schedule reminders.", "Добавьте точную дату для напоминаний.", "Eslatmalar uchun aniq sanani kiriting."), visibleGroups.missing.filter((item) => item.applicability !== "candidate"))}${renderGroup(t(state.locale, "comingUp"), tx("Plan these next.", "Следующие в плане.", "Keyingi reja."), visibleGroups.upcoming.filter((item) => item.applicability !== "candidate"))}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), visibleGroups.covered.filter((item) => item.applicability !== "candidate"))}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed)}`;
+  const candidateGroup = toConfirm.length ? `<section class="item-group"><div class="section-heading"><div><h2>${tx("Confirm applicability", "Уточнить применимость", "Tegishliligini tasdiqlash")}</h2><p>${tx("Accepting creates an obligation; dismissing keeps an audit record.", "Подтверждение создаёт обязанность; отклонение сохраняется в истории.", "Qabul qilish majburiyat yaratadi; rad etish tarixda saqlanadi.")}</p></div><span class="count">${toConfirm.length}</span></div><div class="item-list">${toConfirm.map(candidateCard).join("")}</div></section>` : "";
+  const checklist = `${renderGroup(t(state.locale, "actNow"), tx("Inside the action window.", "Уже в окне действий.", "Harakat oynasida."), visibleGroups.now)}${candidateGroup}${renderGroup(t(state.locale, "addDates"), tx("Add an exact date to schedule reminders.", "Добавьте точную дату для напоминаний.", "Eslatmalar uchun aniq sanani kiriting."), visibleGroups.missing)}${renderGroup(t(state.locale, "comingUp"), tx("Plan these next.", "Следующие в плане.", "Keyingi reja."), visibleGroups.upcoming)}${renderGroup(t(state.locale, "covered"), tx("Nothing needed now.", "Сейчас ничего не требуется.", "Hozir hech narsa talab qilinmaydi."), visibleGroups.covered)}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed)}`;
   const timeline = `<div class="timeline">${[...groups.entries()].map(([month, items]) => `<section class="timeline-month"><div class="month-label"><span>${new Intl.DateTimeFormat(state.locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(parseISODate(`${month}-01`))}</span><i></i></div><div class="timeline-items">${items.map((item) => itemCard(item)).join("")}</div></section>`).join("")}</div>${dated.length ? "" : `<div class="mini-empty"><p>${tx("Confirmed dates will appear here.", "Здесь появятся подтверждённые даты.", "Tasdiqlangan sanalar shu yerda ko‘rinadi.")}</p></div>`}${renderGroup(tx("Completed", "Завершено", "Bajarildi"), "", completed.filter((item) => parseISODate(item.schedule?.date)))}`;
   const assetTypes = Object.keys(ASSET_TYPES).filter((type) => state.assets.some((asset) => asset.type === type));
   const eligibleAssets = state.assets.filter((asset) => (planFilters.country === "all" || assetCountry(asset) === planFilters.country) && (planFilters.assetType === "all" || asset.type === planFilters.assetType));
   const countryStrip = `<section class="country-strip">${(state.profile.activeCountries || []).map((country) => `<button data-action="open-catalog-country" data-country="${country}"><span>${flagForCountry(country)}</span><strong>${countryName(country)}</strong><small>${state.items.filter((item) => item.country === country).length} ${tx("tracked", "в плане", "rejada")}</small></button>`).join("")}<button class="add-country" data-action="change-view" data-view="registry">${icon("plus", 18)}<strong>${tx("People & countries", "Люди и страны", "Odamlar va mamlakatlar")}</strong></button></section>`;
   const filterPanel = planFilters.open ? `<aside class="plan-filter-panel"><div class="filter-panel-head"><strong>${tx("Filter the plan", "Фильтры плана", "Reja filtrlari")}</strong><button class="icon-button" data-action="toggle-plan-filters">${icon("close", 17)}</button></div><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select data-plan-filter="country"><option value="all">${tx("All countries", "Все страны", "Barcha mamlakatlar")}</option>${(state.profile.activeCountries || []).map((country) => `<option value="${country}" ${planFilters.country === country ? "selected" : ""}>${flagForCountry(country)} ${countryName(country)}</option>`).join("")}</select></label>${state.people.length > 1 ? `<label><span>${tx("Person", "Человек", "Shaxs")}</span><select data-plan-filter="personId"><option value="all">${tx("Everyone", "Все", "Barchasi")}</option>${state.people.map((person) => `<option value="${person.id}" ${planFilters.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("")}</select></label>` : ""}${assetTypes.length ? `<label><span>${tx("Possession type", "Тип имущества", "Mulk turi")}</span><select data-plan-filter="assetType"><option value="all">${tx("All types", "Все типы", "Barcha turlar")}</option>${assetTypes.map((type) => `<option value="${type}" ${planFilters.assetType === type ? "selected" : ""}>${escapeHTML(assetTypeLabel(type))}</option>`).join("")}</select></label><label><span>${tx("Exact possession", "Конкретный объект", "Aniq mulk")}</span><select data-plan-filter="assetId"><option value="all">${tx("All possessions", "Все объекты", "Barcha mulklar")}</option>${eligibleAssets.map((asset) => `<option value="${asset.id}" ${planFilters.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${flagForCountry(assetCountry(asset))} ${countryName(assetCountry(asset))}</option>`).join("")}</select></label>` : ""}<button class="secondary-button full" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></aside>` : "";
-  return `${viewHeader(tx("Prioritized across your household", "Приоритеты всей семьи", "Oila bo‘yicha ustuvorliklar"), title, tx("Urgent, unconfirmed, undated, and upcoming obligations in one plan.", "Срочные, неподтверждённые, без даты и предстоящие обязанности — в одном плане.", "Shoshilinch, tasdiqlanmagan, sanasiz va yaqin majburiyatlar bitta rejada."), "plan")}${countryStrip}<div class="plan-toolbar"><div class="segmented"><button class="${planFilters.view === "checklist" ? "active" : ""}" data-action="set-plan-view" data-value="checklist">${tx("Checklist", "Чек-лист", "Ro‘yxat")}</button><button class="${planFilters.view === "timeline" ? "active" : ""}" data-action="set-plan-view" data-value="timeline">${tx("Timeline", "Таймлайн", "Vaqt jadvali")}</button></div><button class="secondary-button compact" data-action="toggle-plan-filters">${icon("sliders", 16)} ${tx("Filters", "Фильтры", "Filtrlar")}${filterCount ? ` (${filterCount})` : ""}</button></div><div class="plan-status-tabs">${[["all", tx("All", "Все", "Barchasi")], ["now", t(state.locale, "actNow")], ["confirm", tx("Confirm", "Уточнить", "Tasdiqlash")], ["needs", t(state.locale, "addDates")], ["completed", tx("Completed", "Завершено", "Bajarildi")]].map(([value, label]) => `<button class="${planFilters.status === value ? "active" : ""}" data-action="set-plan-status" data-value="${value}">${label}</button>`).join("")}</div>${activeChips ? `<div class="active-filter-chips">${activeChips}<button data-action="clear-plan-filters">${tx("Clear all", "Сбросить", "Tozalash")}</button></div>` : ""}${filterPanel}<div class="plan-content">${planFilters.view === "timeline" ? timeline : checklist}</div>${!filtered.length ? `<div class="mini-empty"><p>${tx("No obligations match these filters.", "По этим фильтрам ничего не найдено.", "Bu filtrlarga mos majburiyat yo‘q.")}</p><button class="secondary-button compact" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></div>` : ""}`;
+  return `${viewHeader(tx("Prioritized across your household", "Приоритеты всей семьи", "Oila bo‘yicha ustuvorliklar"), title, tx("Urgent, unconfirmed, undated, and upcoming obligations in one plan.", "Срочные, неподтверждённые, без даты и предстоящие обязанности — в одном плане.", "Shoshilinch, tasdiqlanmagan, sanasiz va yaqin majburiyatlar bitta rejada."), "plan")}${countryStrip}<div class="plan-toolbar"><div class="segmented"><button class="${planFilters.view === "checklist" ? "active" : ""}" data-action="set-plan-view" data-value="checklist">${tx("Checklist", "Чек-лист", "Ro‘yxat")}</button><button class="${planFilters.view === "timeline" ? "active" : ""}" data-action="set-plan-view" data-value="timeline">${tx("Timeline", "Таймлайн", "Vaqt jadvali")}</button></div><button class="secondary-button compact" data-action="toggle-plan-filters">${icon("sliders", 16)} ${tx("Filters", "Фильтры", "Filtrlar")}${filterCount ? ` (${filterCount})` : ""}</button></div><div class="plan-status-tabs">${[["all", tx("All", "Все", "Barchasi")], ["now", t(state.locale, "actNow")], ["confirm", tx("Confirm", "Уточнить", "Tasdiqlash")], ["needs", t(state.locale, "addDates")], ["completed", tx("Completed", "Завершено", "Bajarildi")]].map(([value, label]) => `<button class="${planFilters.status === value ? "active" : ""}" data-action="set-plan-status" data-value="${value}">${label}</button>`).join("")}</div>${activeChips ? `<div class="active-filter-chips">${activeChips}<button data-action="clear-plan-filters">${tx("Clear all", "Сбросить", "Tozalash")}</button></div>` : ""}${filterPanel}<div class="plan-content">${planFilters.view === "timeline" ? timeline : checklist}</div>${!filtered.length && !candidateFiltered.length ? `<div class="mini-empty"><p>${tx("No obligations match these filters.", "По этим фильтрам ничего не найдено.", "Bu filtrlarga mos majburiyat yo‘q.")}</p><button class="secondary-button compact" data-action="clear-plan-filters">${tx("Clear filters", "Сбросить фильтры", "Filtrlarni tozalash")}</button></div>` : ""}`;
 }
 
 function renderRegistry() {
-  return `${viewHeader(tx("People & possessions", "Люди и имущество", "Odamlar va mulk"), t(state.locale, "registry"), tx("Citizenship, current residence, plans, and each exact possession stay separate.", "Гражданство, текущее проживание, планы и каждый объект хранятся отдельно.", "Fuqarolik, hozirgi yashash, rejalar va har bir mulk alohida saqlanadi."), "asset")}<div class="registry-grid"><section class="registry-column"><div class="section-heading"><div><h2>${tx("People", "Люди", "Odamlar")}</h2><p>${tx("Citizenship and where each person lives.", "Гражданство и место проживания каждого человека.", "Har bir shaxsning fuqaroligi va yashash joyi.")}</p></div></div>${state.people.map(personCard).join("")}</section><section class="registry-column"><div class="section-heading"><div><h2>${tx("Exact possessions", "Конкретное имущество", "Aniq mulklar")}</h2><p>${tx("Each car, home, land plot, or business gets its own checklist.", "У каждой машины, жилья, участка или бизнеса — свой чек-лист.", "Har bir avtomobil, uy, yer yoki biznesning o‘z ro‘yxati bor.")}</p></div></div>${state.assets.length ? state.assets.map(assetCard).join("") : `<div class="mini-empty"><p>${tx("No possessions yet.", "Имущество пока не добавлено.", "Hali mulk yo‘q.")}</p><button class="secondary-button compact" data-action="add-asset">${t(state.locale, "addAsset")}</button></div>`}</section></div>`;
+  const documents = state.issuedDocuments || [];
+  return `${viewHeader(tx("People, possessions & documents", "Люди, имущество и документы", "Odamlar, mulk va hujjatlar"), t(state.locale, "registry"), tx("Citizenship, current residence, possessions, and issued documents stay separate and directly manageable.", "Гражданство, проживание, имущество и выданные документы хранятся отдельно и редактируются напрямую.", "Fuqarolik, yashash, mulk va berilgan hujjatlar alohida boshqariladi."), "asset")}<div class="registry-grid"><section class="registry-column"><div class="section-heading"><div><h2>${tx("People", "Люди", "Odamlar")}</h2><p>${tx("Citizenship and where each person lives.", "Гражданство и место проживания каждого человека.", "Har bir shaxsning fuqaroligi va yashash joyi.")}</p></div></div>${state.people.map(personCard).join("")}</section><section class="registry-column"><div class="section-heading"><div><h2>${tx("Exact possessions", "Конкретное имущество", "Aniq mulklar")}</h2><p>${tx("Each car, home, land plot, or business gets its own checklist.", "У каждой машины, жилья, участка или бизнеса — свой чек-лист.", "Har bir avtomobil, uy, yer yoki biznesning o‘z ro‘yxati bor.")}</p></div></div>${state.assets.length ? state.assets.map(assetCard).join("") : `<div class="mini-empty"><p>${tx("No possessions yet.", "Имущество пока не добавлено.", "Hali mulk yo‘q.")}</p><button class="secondary-button compact" data-action="add-asset">${t(state.locale, "addAsset")}</button></div>`}</section></div><section class="document-registry"><div class="section-heading"><div><h2>${tx("Issued documents", "Выданные документы", "Berilgan hujjatlar")}</h2><p>${tx("Passports, permits, insurance, registration, and other papers with their printed dates.", "Паспорта, разрешения, страховки, регистрации и другие документы с указанными в них датами.", "Pasportlar, ruxsatnomalar, sug‘urta, ro‘yxat va bosma sanali boshqa hujjatlar.")}</p></div><button class="secondary-button compact" data-action="add-document">${icon("plus", 16)} ${tx("Add document", "Добавить документ", "Hujjat qo‘shish")}</button></div><div class="document-grid">${documents.length ? documents.map(documentCard).join("") : `<div class="mini-empty"><p>${tx("No issued documents yet.", "Выданные документы пока не добавлены.", "Hali berilgan hujjatlar yo‘q.")}</p></div>`}</div></section>`;
+}
+
+function documentCard(documentRecord) {
+  const subject = documentRecord.subjectType === "asset" ? assetName(documentRecord.assetId) : personName(documentRecord.personId);
+  const linked = state.items.find((item) => item.issuedDocumentId === documentRecord.id);
+  return `<article class="registry-card document-card"><span class="item-icon category-identity">${icon("bookmark", 19)}</span><div><h3>${escapeHTML(documentRecord.title)}</h3><p>${flagForCountry(documentRecord.country)} ${escapeHTML(countryName(documentRecord.country))} · ${escapeHTML(subject)}</p><small>${documentRecord.validUntil ? `${tx("Valid until", "Действует до", "Amal qiladi")}: ${formatDate(documentRecord.validUntil)}` : tx("No expiry date", "Без даты окончания", "Tugash sanasi yo‘q")}${linked ? ` · ${tx("reminders linked", "напоминания связаны", "eslatmalar bog‘langan")}` : ""}</small></div><button class="icon-button" data-action="edit-document" data-id="${documentRecord.id}" aria-label="${tx("Edit document", "Изменить документ", "Hujjatni tahrirlash")}: ${escapeHTML(documentRecord.title)}">${icon("edit", 18)}</button></article>`;
 }
 
 function personCard(person) {
@@ -605,7 +703,10 @@ function assetCard(asset) {
 }
 
 function renderCatalog() {
-  const trackedKeys = new Set(state.items.filter((item) => item.catalogId).map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))));
+  const trackedKeys = new Set([
+    ...state.items.filter((item) => item.catalogId).map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))),
+    ...(state.ruleCandidates || []).filter((candidate) => candidate.candidateStatus !== "dismissed").map((candidate) => catalogItemKey(candidate.catalogId, itemPersonId(candidate), itemAssetId(candidate))),
+  ]);
   const matched = matchCatalog(catalogGraph(state));
   const related = [...new Set([...(state.citizenships || []).map((record) => record.country), ...(state.countryContexts || []).map((record) => record.country), ...(state.assetJurisdictions || []).map((record) => record.country)])];
   const normalizedQuery = ruleFilters.query.trim().toLocaleLowerCase(state.locale);
@@ -656,11 +757,39 @@ function registryRuleCard(rule, trackedKeys, matchedCatalog) {
 }
 
 function renderSettings() {
-  return `${viewHeader(tx("Your preferences", "Ваши настройки", "Sozlamalaringiz"), t(state.locale, "settings"), tx("Language, calendar privacy, and portable backups.", "Язык, приватность календаря и переносимые резервные копии.", "Til, kalendar maxfiyligi va ko‘chma zaxira nusxalari."), "none")}<div class="settings-grid"><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("globe", 20)}</span><div><h2>${t(state.locale, "interfaceLanguage")}</h2><p>English · Русский · O‘zbekcha</p></div></div><select id="language-select">${SUPPORTED_LOCALES.map((locale) => `<option value="${locale.code}" ${state.locale === locale.code ? "selected" : ""}>${locale.label}</option>`).join("")}</select></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("calendar", 20)}</span><div><h2>${t(state.locale, "exportCalendar")}</h2><p>${getCalendarEventCount(state.items, state.settings)} ${tx("events over 24 months", "событий на 24 месяца", "24 oylik tadbirlar")}</p></div></div><label class="toggle-row"><span><strong>${tx("Privacy-safe titles", "Безопасные названия", "Maxfiy nomlar")}</strong><small>${tx("Use generic event names in exported calendars.", "Использовать общие названия в экспортированном календаре.", "Eksport qilingan kalendarda umumiy nomlardan foydalanish.")}</small></span><input type="checkbox" data-setting="privacySafeTitles" ${state.settings.privacySafeTitles ? "checked" : ""}><i></i></label><button class="primary-button full" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("database", 20)}</span><div><h2>${tx("Portable backup", "Переносимая копия", "Ko‘chma zaxira")}</h2><p>${tx("Export or restore your household graph as JSON.", "Экспортируйте или восстановите граф семьи в JSON.", "Uy xo‘jaligi grafigini JSON sifatida eksport yoki tiklang.")}</p></div></div><div class="data-actions"><button class="secondary-button full" data-action="backup-data">${icon("download", 16)} ${tx("Export JSON", "Экспорт JSON", "JSON eksport")}</button><button class="secondary-button full" data-action="restore-data">${icon("upload", 16)} ${tx("Restore", "Восстановить", "Tiklash")}</button></div></section></div>`;
+  const cloudSettings = SAAS_MODE ? `<section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("cloud", 20)}</span><div><h2>${tx("Private calendar feed", "Личная календарная подписка", "Shaxsiy kalendar obunasi")}</h2><p>${tx("Create a revocable subscription URL for Apple, Google, or Outlook.", "Создайте отзывную ссылку подписки для Apple, Google или Outlook.", "Apple, Google yoki Outlook uchun bekor qilinadigan obuna havolasini yarating.")}</p></div></div><div class="data-actions"><button class="primary-button full" data-action="create-calendar-feed">${icon("calendar", 16)} ${tx("Create feed", "Создать подписку", "Obuna yaratish")}</button><button class="secondary-button full" data-action="revoke-calendar-feeds">${tx("Revoke feeds", "Отозвать ссылки", "Havolalarni bekor qilish")}</button></div></section><section class="settings-card danger-zone"><div class="settings-title"><span class="settings-icon">${icon("shield-check", 20)}</span><div><h2>${tx("Security & account", "Безопасность и аккаунт", "Xavfsizlik va akkaunt")}</h2><p>${tx("Revoke other sessions, export your data, or permanently delete the account.", "Завершите другие сессии, экспортируйте данные или удалите аккаунт.", "Boshqa seanslarni tugating, ma’lumotlarni eksport qiling yoki akkauntni o‘chiring.")}</p></div></div><div class="data-actions"><button class="secondary-button full" data-action="revoke-sessions">${tx("Sign out other sessions", "Завершить другие сессии", "Boshqa seanslardan chiqish")}</button><button class="danger-link full" data-action="delete-cloud-account">${icon("trash", 16)} ${tx("Delete account and data", "Удалить аккаунт и данные", "Akkaunt va ma’lumotlarni o‘chirish")}</button></div></section>` : "";
+  return `${viewHeader(tx("Your preferences", "Ваши настройки", "Sozlamalaringiz"), t(state.locale, "settings"), tx("Language, calendar privacy, and portable backups.", "Язык, приватность календаря и переносимые резервные копии.", "Til, kalendar maxfiyligi va ko‘chma zaxira nusxalari."), "none")}<div class="settings-grid"><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("globe", 20)}</span><div><h2>${t(state.locale, "interfaceLanguage")}</h2><p>English · Русский · O‘zbekcha</p></div></div><select id="language-select">${SUPPORTED_LOCALES.map((locale) => `<option value="${locale.code}" ${state.locale === locale.code ? "selected" : ""}>${locale.label}</option>`).join("")}</select></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("calendar", 20)}</span><div><h2>${t(state.locale, "exportCalendar")}</h2><p>${getCalendarEventCount(state.items, state.settings)} ${tx("events over 24 months", "событий на 24 месяца", "24 oylik tadbirlar")}</p></div></div><label class="toggle-row"><span><strong>${tx("Privacy-safe titles", "Безопасные названия", "Maxfiy nomlar")}</strong><small>${tx("Use generic event names in exported calendars.", "Использовать общие названия в экспортированном календаре.", "Eksport qilingan kalendarda umumiy nomlardan foydalanish.")}</small></span><input type="checkbox" data-setting="privacySafeTitles" ${state.settings.privacySafeTitles ? "checked" : ""}><i></i></label><button class="primary-button full" data-action="export-calendar">${icon("download", 16)} ${t(state.locale, "exportCalendar")}</button></section><section class="settings-card"><div class="settings-title"><span class="settings-icon">${icon("database", 20)}</span><div><h2>${tx("Portable backup", "Переносимая копия", "Ko‘chma zaxira")}</h2><p>${tx("Export or restore your household graph as JSON.", "Экспортируйте или восстановите граф семьи в JSON.", "Uy xo‘jaligi grafigini JSON sifatida eksport yoki tiklang.")}</p></div></div><div class="data-actions"><button class="secondary-button full" data-action="backup-data">${icon("download", 16)} ${tx("Export JSON", "Экспорт JSON", "JSON eksport")}</button><button class="secondary-button full" data-action="restore-data">${icon("upload", 16)} ${tx("Import / restore", "Импорт / восстановление", "Import / tiklash")}</button></div></section>${cloudSettings}</div>`;
+}
+
+async function createCalendarFeed() {
+  const response = await fetch("/api/calendar-feeds", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" });
+  if (!response.ok) { announce(tx("Could not create the feed.", "Не удалось создать подписку.", "Obunani yaratib bo‘lmadi.")); return; }
+  const { url } = await response.json();
+  try { await navigator.clipboard.writeText(url); announce(tx("Private feed URL copied. Treat it like a password.", "Ссылка подписки скопирована. Храните её как пароль.", "Shaxsiy obuna havolasi nusxalandi. Uni parol kabi saqlang.")); }
+  catch { window.prompt(tx("Copy this private feed URL", "Скопируйте личную ссылку подписки", "Shaxsiy obuna havolasini nusxalang"), url); }
+}
+
+async function revokeCalendarFeeds() {
+  if (!window.confirm(tx("Revoke every active calendar feed URL?", "Отозвать все активные ссылки календаря?", "Barcha faol kalendar havolalari bekor qilinsinmi?"))) return;
+  const response = await fetch("/api/calendar-feeds", { method: "DELETE", credentials: "same-origin" });
+  announce(response.ok ? tx("Calendar feeds revoked.", "Ссылки календаря отозваны.", "Kalendar havolalari bekor qilindi.") : tx("Could not revoke feeds.", "Не удалось отозвать ссылки.", "Havolalarni bekor qilib bo‘lmadi."));
+}
+
+async function revokeOtherSessions() {
+  const response = await fetch("/api/account/sessions", { method: "DELETE", credentials: "same-origin" });
+  announce(response.ok ? tx("Other sessions signed out.", "Другие сессии завершены.", "Boshqa seanslar tugatildi.") : tx("Could not update sessions.", "Не удалось обновить сессии.", "Seanslarni yangilab bo‘lmadi."));
+}
+
+async function deleteCloudAccount() {
+  const confirmation = window.prompt(tx("Type DELETE to permanently remove this account and all household data.", "Введите DELETE, чтобы навсегда удалить аккаунт и все данные семьи.", "Akkaunt va barcha ma’lumotlarni butunlay o‘chirish uchun DELETE yozing."));
+  if (confirmation !== "DELETE") return;
+  const response = await fetch("/api/account", { method: "DELETE", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmation }) });
+  if (!response.ok) { announce(tx("Account deletion failed.", "Не удалось удалить аккаунт.", "Akkauntni o‘chirib bo‘lmadi.")); return; }
+  window.top.location.href = "/api/auth/signout";
 }
 
 function openItemDialog(item = null) {
-  const dialog = document.querySelector("#item-dialog"); const form = document.querySelector("#item-form"); form.reset();
+  const dialog = document.querySelector("#item-dialog"); const form = document.querySelector("#item-form"); form.reset(); clearFormErrors(form);
   form.elements.id.value = item?.id || ""; form.elements.title.value = item?.title || ""; form.elements.category.value = item?.category || "identity";
   form.elements.kind.value = item?.schedule?.kind || "expiry"; form.elements.date.value = item?.schedule?.date || ""; form.elements.frequency.value = item?.schedule?.frequency || "yearly";
   form.elements.reminderInput.value = item?.reminderInput || "";
@@ -672,12 +801,81 @@ function openItemDialog(item = null) {
   form.elements.notes.value = item?.notes || "";
   const locked = item?.provenance === "catalog";
   document.querySelector("#item-provenance").hidden = !locked;
-  document.querySelector("#item-applicability-field").hidden = !locked;
-  form.elements.applicability.disabled = !locked;
-  form.elements.applicability.value = item?.applicability || (locked ? "candidate" : "confirmed");
+  document.querySelector("#item-applicability-field").hidden = true;
+  form.elements.applicability.disabled = true;
+  form.elements.applicability.value = "confirmed";
   for (const name of ["title", "category", "country", "subjectType", "personId", "assetId"]) form.elements[name].disabled = locked;
   dialog.querySelector("#item-dialog-title").textContent = item ? tx("Edit obligation", "Изменить обязанность", "Majburiyatni o‘zgartirish") : t(state.locale, "addDeadline");
   dialog.querySelector("#delete-item").hidden = !item; updateItemSubjectFields(); updateScheduleFields(); updateReminderPreview(); dialog.showModal();
+}
+
+function updateDocumentSubjectFields() {
+  const form = document.querySelector("#document-form");
+  const isAsset = form.elements.subjectType.value === "asset";
+  document.querySelector("#document-person-field").hidden = isAsset;
+  document.querySelector("#document-asset-field").hidden = !isAsset;
+  form.elements.personId.disabled = isAsset;
+  form.elements.assetId.disabled = !isAsset;
+  document.querySelector("#document-reminder-field").hidden = !form.elements.validUntil.value;
+}
+
+function openDocumentDialog(documentRecord = null) {
+  const form = document.querySelector("#document-form");
+  form.reset(); clearFormErrors(form);
+  form.elements.id.value = documentRecord?.id || "";
+  form.elements.title.value = documentRecord?.title || "";
+  form.elements.documentType.value = documentRecord?.documentType || "identity";
+  form.elements.country.innerHTML = countryOptions(documentRecord?.country || state.profile.activeCountries?.[0] || "RU", false);
+  form.elements.subjectType.value = documentRecord?.subjectType || "person";
+  form.elements.personId.innerHTML = state.people.map((person) => `<option value="${person.id}" ${documentRecord?.personId === person.id ? "selected" : ""}>${escapeHTML(personName(person.id))}</option>`).join("");
+  form.elements.assetId.innerHTML = state.assets.map((asset) => `<option value="${asset.id}" ${documentRecord?.assetId === asset.id ? "selected" : ""}>${escapeHTML(displayAssetLabel(asset))} · ${escapeHTML(countryName(assetCountry(asset)))}</option>`).join("");
+  form.elements.issuedOn.value = documentRecord?.issuedOn || "";
+  form.elements.validUntil.value = documentRecord?.validUntil || "";
+  const linked = documentRecord ? state.items.find((item) => item.issuedDocumentId === documentRecord.id) : null;
+  form.elements.reminderInput.value = linked?.reminderInput || "180/60/14/1";
+  document.querySelector("#document-dialog-title").textContent = documentRecord ? tx("Edit issued document", "Изменить документ", "Berilgan hujjatni tahrirlash") : tx("Add issued document", "Добавить документ", "Berilgan hujjatni qo‘shish");
+  document.querySelector("#delete-document").hidden = !documentRecord;
+  updateDocumentSubjectFields();
+  document.querySelector("#document-dialog").showModal();
+}
+
+async function saveDocument() {
+  const form = document.querySelector("#document-form"); const data = new FormData(form); clearFormErrors(form);
+  const title = String(data.get("title") || "").trim(); const validUntil = String(data.get("validUntil") || ""); const issuedOn = String(data.get("issuedOn") || "");
+  const errors = [];
+  if (!title) errors.push({ name: "title", message: tx("Add a document name.", "Добавьте название документа.", "Hujjat nomini kiriting.") });
+  if (issuedOn && validUntil && validUntil < issuedOn) errors.push({ name: "validUntil", message: tx("Expiry must be after the issue date.", "Дата окончания должна быть позже даты выдачи.", "Tugash sanasi berilgan sanadan keyin bo‘lishi kerak.") });
+  const subjectType = data.get("subjectType");
+  if (subjectType === "person" && !data.get("personId")) errors.push({ name: "personId", message: tx("Choose a person.", "Выберите человека.", "Shaxsni tanlang.") });
+  if (subjectType === "asset" && !data.get("assetId")) errors.push({ name: "assetId", message: tx("Choose a possession.", "Выберите имущество.", "Mulkni tanlang.") });
+  let reminderOffsets = [];
+  if (validUntil) {
+    try { reminderOffsets = parseReminderSequence(String(data.get("reminderInput") || "")); }
+    catch (error) { errors.push({ name: "reminderInput", message: validationMessage(error.message) }); }
+  }
+  if (showFormErrors(form, errors)) return;
+  const existing = state.issuedDocuments.find((documentRecord) => documentRecord.id === data.get("id"));
+  const documentId = existing?.id || createId("document");
+  const record = { ...(existing || {}), id: documentId, subjectType, personId: subjectType === "person" ? data.get("personId") : null, assetId: subjectType === "asset" ? data.get("assetId") : null, country: data.get("country"), documentType: data.get("documentType"), title, status: validUntil && validUntil < toISODate(new Date()) ? "expired" : "active", issuedOn, validUntil, confirmation: "user_confirmed" };
+  state.issuedDocuments = existing ? state.issuedDocuments.map((entry) => entry.id === documentId ? record : entry) : [...state.issuedDocuments, record];
+  const linked = state.items.find((item) => item.issuedDocumentId === documentId);
+  if (validUntil) {
+    const timestamp = new Date().toISOString();
+    const obligation = { ...(linked || {}), id: linked?.id || createId("document-expiry"), title: `${title} · ${tx("expiry", "окончание", "tugash")}`, category: ["registration", "insurance", "inspection"].includes(record.documentType) ? "transport" : record.documentType === "tax" ? "tax" : record.documentType === "immigration_status" ? "residence" : "identity", country: record.country, jurisdiction: record.country, subjectType: record.subjectType, personId: record.personId, assetId: record.assetId, responsiblePersonId: record.personId || primaryAssetPerson(state, record.assetId)?.personId || null, issuedDocumentId: documentId, provenance: "document", confirmation: "confirmed", applicability: "confirmed", schedule: { kind: "expiry", date: validUntil, frequency: "yearly", interval: 1 }, reminderInput: formatReminderSequence(reminderOffsets), reminderOffsets, status: "active", notes: "", createdAt: linked?.createdAt || timestamp, updatedAt: timestamp };
+    state.items = linked ? state.items.map((item) => item.id === linked.id ? obligation : item) : [...state.items, obligation];
+  } else if (linked) {
+    state.items = state.items.filter((item) => item.id !== linked.id);
+  }
+  syncActiveCountries();
+  await persistState(); document.querySelector("#document-dialog").close(); render(); announce(tx("Document saved.", "Документ сохранён.", "Hujjat saqlandi."));
+}
+
+async function deleteDocument() {
+  const id = document.querySelector("#document-form").elements.id.value; if (!id) return;
+  if (!window.confirm(tx("Remove this document and its linked expiry reminder?", "Удалить документ и связанное напоминание об окончании?", "Hujjat va bog‘langan tugash eslatmasi o‘chirilsinmi?"))) return;
+  state.issuedDocuments = state.issuedDocuments.filter((documentRecord) => documentRecord.id !== id);
+  state.items = state.items.filter((item) => item.issuedDocumentId !== id);
+  await persistState(); document.querySelector("#document-dialog").close(); render(); announce(tx("Document removed.", "Документ удалён.", "Hujjat olib tashlandi."));
 }
 
 function updateItemSubjectFields() {
@@ -740,7 +938,7 @@ function renderPersonCitizenshipRows(countries = personFormCitizenships()) {
 }
 
 function openAssetDialog(asset = null) {
-  const form = document.querySelector("#asset-form"); form.reset(); form.elements.id.value = asset?.id || ""; form.elements.type.value = asset?.type || ""; form.elements.label.value = asset?.label || "";
+  const form = document.querySelector("#asset-form"); form.reset(); clearFormErrors(form); form.elements.id.value = asset?.id || ""; form.elements.type.value = asset?.type || ""; form.elements.label.value = asset?.label || "";
   form.elements.vehicleIdentifierSuffix.value = asset?.facts?.vehicleIdentifierSuffix || "";
   form.elements.vehicleClass.value = asset?.facts?.vehicleClass || "";
   form.elements.vehicleUse.value = asset?.facts?.vehicleUse || "";
@@ -761,7 +959,7 @@ function openAssetDialog(asset = null) {
 }
 
 function openPersonDialog(person = null) {
-  const form = document.querySelector("#person-form"); const primaryRelation = person ? personContexts(person.id).find((item) => item.contextType === "lives_now") || personContexts(person.id)[0] : null; form.reset(); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
+  const form = document.querySelector("#person-form"); const primaryRelation = person ? personContexts(person.id).find((item) => item.contextType === "lives_now") || personContexts(person.id)[0] : null; form.reset(); clearFormErrors(form); form.elements.id.value = person?.id || ""; form.elements.name.value = person?.name || "";
   const citizenships = person ? personCitizenships(person.id) : [];
   renderPersonCitizenshipRows(citizenships);
   form.elements.residence.value = primaryRelation?.country || "";
@@ -847,7 +1045,7 @@ function openCountryDialog(personId, relationId = "", citizenshipCountry = "") {
   const person = state.people.find((entry) => entry.id === personId); if (!person) return;
   const relation = relationId ? state.countryContexts.find((entry) => entry.id === relationId) : null;
   const route = relation ? routeForContext(state, relation.id) : null;
-  const form = document.querySelector("#country-form"); form.reset();
+  const form = document.querySelector("#country-form"); form.reset(); clearFormErrors(form);
   form.elements.personId.value = personId; form.elements.relationId.value = relation?.id || ""; form.elements.originalCountry.value = citizenshipCountry || "";
   form.elements.recordKind.value = citizenshipCountry ? "citizenship" : "relationship";
   form.elements.country.value = citizenshipCountry || relation?.country || "";
@@ -874,24 +1072,60 @@ function openCountryDialog(personId, relationId = "", citizenshipCountry = "") {
 
 async function saveItem() {
   const form = document.querySelector("#item-form"); const data = new FormData(form); let offsets;
+  clearFormErrors(form);
   const reminderInput = String(data.get("reminderInput") || "").trim();
   const confirmedDate = String(data.get("date") || "");
-  try { offsets = confirmedDate ? parseReminderSequence(reminderInput) : []; } catch (error) { announce(validationMessage(error.message)); return; }
+  try { offsets = confirmedDate ? parseReminderSequence(reminderInput) : []; } catch (error) { showFormErrors(form, [{ name: "reminderInput", message: validationMessage(error.message) }]); return; }
   const id = data.get("id"); const existing = state.items.find((item) => item.id === id); const title = existing?.provenance === "catalog" ? existing.title : String(data.get("title") || "").trim();
-  if (!title) { announce(tx("Add a name.", "Добавьте название.", "Nom kiriting.")); return; }
+  if (!title) { showFormErrors(form, [{ name: "title", message: tx("Add a name.", "Добавьте название.", "Nom kiriting.") }]); return; }
   const timestamp = new Date().toISOString();
   const subjectType = existing?.provenance === "catalog" ? existing.subjectType : data.get("subjectType");
-  const applicability = existing?.provenance === "catalog" ? (data.get("applicability") || existing.applicability || "candidate") : "user_confirmed";
+  const applicability = "confirmed";
   const item = { ...(existing || {}), id: existing?.id || createId("custom"), title, category: existing?.provenance === "catalog" ? existing.category : data.get("category"), country: existing?.provenance === "catalog" ? existing.country : data.get("country"), jurisdiction: existing?.provenance === "catalog" ? existing.country : data.get("country"), subjectType, personId: subjectType === "person" ? (existing?.provenance === "catalog" ? existing.personId : data.get("personId")) : null, assetId: subjectType === "asset" ? (existing?.provenance === "catalog" ? existing.assetId : data.get("assetId")) : null, responsiblePersonId: data.get("responsiblePersonId") || (subjectType === "person" ? (existing?.personId || data.get("personId")) : null), provenance: existing?.provenance || "user", confirmation: "confirmed", applicability, schedule: { kind: data.get("kind"), date: confirmedDate, frequency: data.get("frequency") || "yearly", interval: 1 }, reminderInput, reminderOffsets: offsets, status: applicability === "not_applicable" ? "paused" : existing?.status === "paused" ? "active" : existing?.status || "active", notes: String(data.get("notes") || "").trim().slice(0, 500), createdAt: existing?.createdAt || timestamp, updatedAt: timestamp };
-  if (!validateSubject(item)) { announce(tx("Choose exactly one subject.", "Выберите ровно один предмет обязанности.", "Faqat bitta majburiyat obyektini tanlang.")); return; }
+  if (!validateSubject(item)) { showFormErrors(form, [{ name: "subjectType", message: tx("Choose exactly one subject.", "Выберите ровно один предмет обязанности.", "Faqat bitta majburiyat obyektini tanlang.") }]); return; }
   state.items = existing ? state.items.map((entry) => entry.id === existing.id ? item : entry) : [...state.items, item];
   await persistState(); document.querySelector("#item-dialog").close(); render(); announce(tx("Saved.", "Сохранено.", "Saqlandi."));
 }
 
+async function acceptCandidate(candidateId) {
+  const candidate = (state.ruleCandidates || []).find((entry) => entry.id === candidateId && entry.candidateStatus === "pending");
+  if (!candidate) return;
+  const timestamp = new Date().toISOString();
+  const { candidateStatus, decidedAt, applicability: ignoredApplicability, ...base } = candidate;
+  const obligation = {
+    ...base,
+    id: createId("obligation"),
+    sourceCandidateId: candidate.id,
+    applicability: "confirmed",
+    status: "active",
+    updatedAt: timestamp,
+  };
+  candidate.candidateStatus = "accepted";
+  candidate.decidedAt = timestamp;
+  candidate.obligationId = obligation.id;
+  state.items.push(obligation);
+  await persistState();
+  render();
+  openItemDialog(obligation);
+}
+
+async function dismissCandidate(candidateId) {
+  const candidate = (state.ruleCandidates || []).find((entry) => entry.id === candidateId && entry.candidateStatus === "pending");
+  if (!candidate) return;
+  candidate.candidateStatus = "dismissed";
+  candidate.decidedAt = new Date().toISOString();
+  await persistState();
+  render();
+  announce(tx("Candidate dismissed and kept in the audit history.", "Кандидат отклонён и сохранён в истории.", "Nomzod rad etildi va tarixda saqlandi."));
+}
+
 async function saveAsset() {
   const form = document.querySelector("#asset-form"); const data = new FormData(form); const id = data.get("id"); const existing = state.assets.find((asset) => asset.id === id);
-  if (!data.get("type")) { announce(tx("Choose a possession type.", "Выберите тип имущества.", "Mulk turini tanlang.")); return; }
-  if (!data.get("country")) { announce(tx("Choose the possession’s country.", "Выберите страну имущества.", "Mulk mamlakatini tanlang.")); return; }
+  clearFormErrors(form);
+  const errors = [];
+  if (!data.get("type")) errors.push({ name: "type", message: tx("Choose a possession type.", "Выберите тип имущества.", "Mulk turini tanlang.") });
+  if (!data.get("country")) errors.push({ name: "country", message: tx("Choose the possession’s country.", "Выберите страну имущества.", "Mulk mamlakatini tanlang.") });
+  if (showFormErrors(form, errors)) return;
   const assetId = existing?.id || createId("asset");
   const facts = {};
   if (data.get("vehicleIdentifierSuffix")) facts.vehicleIdentifierSuffix = String(data.get("vehicleIdentifierSuffix")).trim();
@@ -953,7 +1187,8 @@ async function savePerson() {
 
 async function saveCountryRelation() {
   const form = document.querySelector("#country-form"); const data = new FormData(form); const person = state.people.find((entry) => entry.id === data.get("personId")); const country = data.get("country");
-  if (!person || !country) { announce(tx("Choose a country.", "Выберите страну.", "Mamlakatni tanlang.")); return; }
+  clearFormErrors(form);
+  if (!person || !country) { showFormErrors(form, [{ name: "country", message: tx("Choose a country.", "Выберите страну.", "Mamlakatni tanlang.") }]); return; }
   const relationId = data.get("relationId"); const originalCountry = data.get("originalCountry");
   if (data.get("recordKind") === "citizenship") {
     if (relationId) removeCountryContext(relationId);
@@ -967,9 +1202,9 @@ async function saveCountryRelation() {
     const isCitizen = personCitizenships(person.id).includes(country);
     if (originalCountry) state.citizenships = state.citizenships.filter((record) => !(record.personId === person.id && record.country === originalCountry));
     const existingRelation = state.countryContexts.find((entry) => entry.id === relationId); const purpose = data.get("purpose") || "unknown"; const routeCode = isCitizen ? "citizen" : purpose === "unknown" ? "not_sure" : data.get("route") || "not_sure";
-    if (!isCitizen && !routeChoices(country, purpose, personCitizenships(person.id)).includes(routeCode)) { announce(tx("Choose a route that matches this country, citizenship, and purpose.", "Выберите основание, совместимое со страной, гражданством и целью.", "Mamlakat, fuqarolik va maqsadga mos asosni tanlang.")); return; }
+    if (!isCitizen && !routeChoices(country, purpose, personCitizenships(person.id)).includes(routeCode)) { showFormErrors(form, [{ name: "route", message: tx("Choose a route that matches this country, citizenship, and purpose.", "Выберите основание, совместимое со страной, гражданством и целью.", "Mamlakat, fuqarolik va maqsadga mos asosni tanlang.") }]); return; }
     const startsOn = data.get("startsOn") || ""; const endsOn = data.get("endsOn") || "";
-    if (startsOn && endsOn && endsOn < startsOn) { announce(tx("The end date must be after the start date.", "Дата окончания должна быть позже даты начала.", "Tugash sanasi boshlanish sanasidan keyin bo‘lishi kerak.")); return; }
+    if (startsOn && endsOn && endsOn < startsOn) { showFormErrors(form, [{ name: "endsOn", message: tx("The end date must be after the start date.", "Дата окончания должна быть позже даты начала.", "Tugash sanasi boshlanish sanasidan keyin bo‘lishi kerak.") }]); return; }
     const relation = { id: relationId || createId("context"), personId: person.id, country, contextType: data.get("contextType") || existingRelation?.contextType || "planned_move", purpose, startsOn, endsOn, confirmation: "user_confirmed", note: String(data.get("note") || "").trim() };
     state.countryContexts = existingRelation ? state.countryContexts.map((entry) => entry.id === existingRelation.id ? relation : entry) : [...state.countryContexts, relation];
     let route = routeForContext(state, relation.id); if (!route) { route = { id: createId("route"), countryContextId: relation.id }; state.legalRoutes.push(route); }
@@ -1017,9 +1252,14 @@ async function addCatalogItem(id, targetValue = "") {
   const match = matches.find((candidate) => candidate.subjectId === targetPersonId && (candidate.assetId || "") === targetAssetId) || (matches.length === 1 ? matches[0] : null);
   if (!match) { announce(tx("Choose the person or possession to track.", "Выберите человека или объект для отслеживания.", "Kuzatish uchun shaxs yoki mulkni tanlang.")); return; }
   const key = catalogItemKey(id, match.subjectId, match.assetId);
-  if (state.items.some((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item)) === key)) return;
-  state.items.push(normalizeCatalogObligation(makeItemFromCatalog(match, { title: localized(entry.title, state.locale), reason: localized(entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: personName(match.subjectId) }), match.subjectId, "confirmed")); state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), entry.country])];
-  await persistState(); render(); announce(tx("Added to your plan. Confirm the date next.", "Добавлено в план. Теперь подтвердите дату.", "Rejaga qo‘shildi. Endi sanani tasdiqlang."));
+  if (state.items.some((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item)) === key) || (state.ruleCandidates || []).some((candidate) => candidate.candidateStatus !== "dismissed" && catalogItemKey(candidate.catalogId, itemPersonId(candidate), itemAssetId(candidate)) === key)) return;
+  const candidate = normalizeCatalogObligation(makeItemFromCatalog(match, { title: localized(entry.title, state.locale), reason: localized(entry.summary, state.locale), catalogVersion: CATALOG_VERSION, person: personName(match.subjectId) }), match.subjectId, "candidate");
+  delete candidate.applicability;
+  candidate.candidateStatus = "pending";
+  candidate.decidedAt = null;
+  state.ruleCandidates.push(candidate);
+  state.profile.activeCountries = [...new Set([...(state.profile.activeCountries || []), entry.country])];
+  await persistState(); render(); announce(tx("Added for applicability confirmation.", "Добавлено для проверки применимости.", "Tegishliligini tasdiqlash uchun qo‘shildi."));
 }
 
 function filterCatalog(country) {
@@ -1089,9 +1329,14 @@ document.addEventListener("click", async (event) => {
   if (action === "add-item") openItemDialog();
   if (action === "edit-item") openItemDialog(state.items.find((item) => item.id === target.dataset.id));
   if (action === "save-item") await saveItem();
+  if (action === "accept-candidate") await acceptCandidate(target.dataset.id);
+  if (action === "dismiss-candidate") await dismissCandidate(target.dataset.id);
   if (action === "add-asset") openAssetDialog();
   if (action === "edit-asset") openAssetDialog(state.assets.find((asset) => asset.id === target.dataset.id));
   if (action === "save-asset") await saveAsset();
+  if (action === "add-document") openDocumentDialog();
+  if (action === "edit-document") openDocumentDialog(state.issuedDocuments.find((documentRecord) => documentRecord.id === target.dataset.id));
+  if (action === "save-document") await saveDocument();
   if (action === "add-asset-role") addAssetRoleRow({ personId: state.people[0]?.id || "", role: "owner" });
   if (action === "add-asset-jurisdiction") addAssetJurisdictionRow({ role: "tax" });
   if (action === "remove-dynamic-row") target.closest(".role-row")?.remove();
@@ -1121,7 +1366,11 @@ document.addEventListener("click", async (event) => {
   if (action === "show-more-rules") { ruleFilters.limit += 60; render(); }
   if (action === "toggle-plan-filters") { planFilters.open = !planFilters.open; render(); }
   if (action === "clear-plan-filter") { planFilters[target.dataset.filter] = "all"; render(); }
-  if (action === "clear-plan-filters") { planFilters = { ...planFilters, country: "all", personId: "all", assetType: "all", assetId: "all", open: false }; render(); }
+  if (action === "clear-plan-filters") { planFilters = { ...planFilters, status: "all", country: "all", personId: "all", assetType: "all", assetId: "all", open: false }; render(); }
+  if (action === "create-calendar-feed") await createCalendarFeed();
+  if (action === "revoke-calendar-feeds") await revokeCalendarFeeds();
+  if (action === "delete-cloud-account") await deleteCloudAccount();
+  if (action === "revoke-sessions") await revokeOtherSessions();
 });
 
 document.addEventListener("change", async (event) => {
@@ -1141,6 +1390,7 @@ document.addEventListener("change", async (event) => {
   if (event.target.id === "language-select") { setLanguage(event.target.value); await persistState(); render(); }
   if (event.target.id === "rule-country") { ruleFilters.country = event.target.value; ruleFilters.limit = 60; render(); }
   if (event.target.closest("#item-form") && event.target.name === "subjectType") updateItemSubjectFields();
+  if (event.target.closest("#document-form") && ["subjectType", "validUntil"].includes(event.target.name)) updateDocumentSubjectFields();
   if (event.target.closest("#asset-form") && event.target.name === "type") updateAssetTypeFields();
   if (event.target.closest("#asset-role-list") && event.target.name === "roleType") updateAssetRoleRow(event.target.closest(".role-row"));
   if (event.target.name === "kind") updateScheduleFields();
@@ -1181,6 +1431,8 @@ document.querySelector("#delete-asset").addEventListener("click", async () => {
   if (window.confirm(tx("Remove this possession and its generated checklist? Custom obligations will be kept without the possession link.", "Удалить это имущество и созданный для него чек-лист? Пользовательские обязанности сохранятся без привязки.", "Bu mulk va uning yaratilgan ro‘yxati o‘chirilsinmi? Maxsus majburiyatlar bog‘lanishsiz saqlanadi."))) await deleteAsset();
 });
 
+document.querySelector("#delete-document").addEventListener("click", deleteDocument);
+
 document.querySelector("#delete-country-relation").addEventListener("click", async () => {
   if (window.confirm(tx("Remove these country details?", "Удалить эти данные о стране?", "Bu mamlakat ma’lumotlari olib tashlansinmi?"))) await deleteCountryRelation();
 });
@@ -1193,7 +1445,12 @@ document.querySelector("#restore-input").addEventListener("change", async (event
 
 document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); }));
 
-if (TEST_MODE_RESET_ON_LOAD) await resetStoredStateForTestMode();
-state = await loadState();
+if (TEST_MODE_RESET_ON_LOAD && !SAAS_MODE) await resetStoredStateForTestMode();
+try { state = await loadState(); }
+catch (error) {
+  state = defaultState();
+  console.error(error);
+  window.setTimeout(() => announce(tx("Could not load cloud data. Refresh or sign in again.", "Не удалось загрузить данные из облака. Обновите страницу или войдите снова.", "Bulut ma’lumotlarini yuklab bo‘lmadi. Sahifani yangilang yoki qayta kiring.")), 0);
+}
 setLanguage(state.locale || "en");
 render();

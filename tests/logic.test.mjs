@@ -165,10 +165,11 @@ test("rejects malformed or oversized backups", () => {
   assert.throws(() => validateBackup(malformed), /Invalid subject/);
 });
 
-test("starts on Plan and resets browser data on every full load in test mode", () => {
+test("starts on Plan, resets the static preview, and preserves SaaS cloud state", () => {
   assert.match(appSource, /const TEST_MODE_RESET_ON_LOAD = true/);
+  assert.match(appSource, /const SAAS_MODE =/);
   assert.match(appSource, /let activeView = "plan"/);
-  assert.match(appSource, /if \(TEST_MODE_RESET_ON_LOAD\) await resetStoredStateForTestMode\(\)/);
+  assert.match(appSource, /if \(TEST_MODE_RESET_ON_LOAD && !SAAS_MODE\) await resetStoredStateForTestMode\(\)/);
   assert.doesNotMatch(htmlSource, /data-view="today"/);
   assert.match(htmlSource, /data-view="plan"/);
 });
@@ -199,7 +200,7 @@ test("rules library exposes all evidence tiers without claiming every row is act
   assert.doesNotMatch(stylesSource, /\.coverage-card/);
 });
 
-test("migrates v4 people, assets, and ambiguous obligations into the normalized v5 graph", () => {
+test("migrates v4 people, assets, and ambiguous rule matches into the normalized v6 graph", () => {
   const migrated = migrateDomainState({
     version: 4,
     onboarded: true,
@@ -210,13 +211,45 @@ test("migrates v4 people, assets, and ambiguous obligations into the normalized 
     assets: [{ id: "car-1", type: "vehicle", label: "Car", country: "RU", ownerId: "person-1" }],
     items: [{ id: "item-1", title: "Insurance", category: "transport", country: "RU", subjectId: "person-1", assetId: "car-1", provenance: "catalog", schedule: { kind: "expiry", date: "" }, reminderInput: "30/1", status: "active" }],
   });
-  assert.equal(migrated.version, 5);
+  assert.equal(migrated.version, 6);
   assert.deepEqual(migrated.citizenships.map((record) => record.country).sort(), ["RU", "UZ"]);
   assert.equal(migrated.assetJurisdictions[0].country, "RU");
   assert.deepEqual(migrated.assetPersonRoles[0], { id: migrated.assetPersonRoles[0].id, assetId: "car-1", personId: "person-1", role: "owner" });
-  assert.equal(migrated.items[0].subjectType, "asset");
-  assert.equal(migrated.items[0].responsiblePersonId, "person-1");
-  assert.equal(migrated.items[0].applicability, "candidate");
+  assert.equal(migrated.items.length, 0);
+  assert.equal(migrated.ruleCandidates[0].subjectType, "asset");
+  assert.equal(migrated.ruleCandidates[0].responsiblePersonId, "person-1");
+  assert.equal(migrated.ruleCandidates[0].candidateStatus, "pending");
+});
+
+test("migrates v5 candidates away from confirmed obligations", () => {
+  const old = emptyDomainState();
+  old.version = 5;
+  delete old.ruleCandidates;
+  old.items = [
+    { id: "candidate-1", title: "Candidate", category: "identity", country: "RU", subjectType: "person", personId: "person-me", assetId: null, provenance: "catalog", applicability: "candidate", schedule: { kind: "expiry", date: "" } },
+    { id: "confirmed-1", title: "Confirmed", category: "tax", country: "RU", subjectType: "household", personId: null, assetId: null, provenance: "user", applicability: "confirmed", schedule: { kind: "due", date: "" } },
+  ];
+  const migrated = migrateDomainState(old);
+  assert.equal(migrated.version, 6);
+  assert.deepEqual(migrated.ruleCandidates.map((entry) => entry.id), ["candidate-1"]);
+  assert.deepEqual(migrated.items.map((entry) => entry.id), ["confirmed-1"]);
+});
+
+test("candidate decisions and issued-document management are first-class UI flows", () => {
+  assert.match(appSource, /function acceptCandidate/);
+  assert.match(appSource, /candidate\.candidateStatus = "accepted"/);
+  assert.match(appSource, /candidate\.candidateStatus = "dismissed"/);
+  assert.match(appSource, /function openDocumentDialog/);
+  assert.match(appSource, /issuedDocumentId: documentId/);
+  assert.match(htmlSource, /id="document-dialog"/);
+  assert.match(appSource, /status: "all", country: "all", personId: "all", assetType: "all", assetId: "all", open: false/);
+});
+
+test("forms expose inline accessible errors and the 624px layout uses wrapped actions", () => {
+  assert.match(appSource, /className = "form-error-summary"/);
+  assert.match(appSource, /setAttribute\("role", "alert"\)/);
+  assert.match(appSource, /setAttribute\("aria-invalid", "true"\)/);
+  assert.match(stylesSource, /@media \(max-width: 790px\)[\s\S]*\.header-actions \{ width: 100%;/);
 });
 
 test("projects normalized multi-role assets into the deterministic catalog matcher", () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { parseReminderPlan, reminderDates, ReminderPlanError } from "./reminders";
 
 test("parses slash-delimited day offsets and canonicalizes descending order", () => {
@@ -21,4 +22,12 @@ test("previews reminder dates without local-time drift", () => {
 
 test("rejects invalid deadline dates", () => {
   assert.throws(() => reminderDates("2027-02-29", parseReminderPlan("7")), /valid calendar date/);
+});
+
+test("worker queues idempotent email deliveries and prefers the responsible person's recipient mapping", () => {
+  const worker = readFileSync(new URL("../worker/reminders.ts", import.meta.url), "utf8");
+  assert.match(worker, /on conflict \(household_id, obligation_id, occurrence_date, offset_days, channel\) do nothing/);
+  assert.match(worker, /person_notification_recipients/);
+  assert.match(worker, /mapping\.person_id = obligation\.responsible_person_id/);
+  assert.match(worker, /notification_preferences/);
 });

@@ -1,6 +1,6 @@
 # V2 refactor plan
 
-Status: implementation checkpoint
+Status: P0 implementation complete; production credentials pending
 
 Review date: 2026-11-16
 
@@ -36,10 +36,10 @@ User-entered state never mutates registry data. Registry updates do not overwrit
 - Keep the existing 24 localized catalog records as the verified/publishable overlay until the remaining rules receive editorial translations and exact applicability review.
 - Add country, review-state, specificity and free-text indexes for the Rules library.
 
-### 2. Browser domain state v5
+### 2. Browser domain state v6
 
 - Introduce normalized collections and selector functions.
-- Add a v4-to-v5 migration and backup validation.
+- Add v4/v5-to-v6 migration and backup validation.
 - Replace `ownerId`, embedded `jurisdictions`, item `subjectId`/`assetId` ambiguity and duplicated document shapes.
 - Keep unknown dates null and route choices unconfirmed.
 
@@ -94,3 +94,5 @@ The refactor is complete only when:
 - catalog candidates never receive invented due dates;
 - browser QA confirms progressive fields and usable layouts;
 - review documentation and implementation no longer contradict each other.
+
+All code-controlled P0 gates above are closed. Public production delivery remains operationally blocked on owner-provided hosting/domain, OAuth, restricted database role, backup target and verified email sender credentials; those secrets are intentionally not stored in this repository.

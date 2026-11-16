@@ -26,7 +26,8 @@ User --< Membership >-- Household
                          |--< Asset --< AssetJurisdiction
                          |         |--< AssetPersonRole >-- Person
                          |         `--< IssuedDocument
-                         `--< Obligation >-- Rule --< RuleSource >-- Source
+                         |--< RuleCandidate >-- Rule --< RuleSource >-- Source
+                         `--< Obligation >-- Rule
                                   `-- responsible Person (optional)
 ```
 
@@ -89,6 +90,10 @@ or (subject_type = 'asset' and asset_id is not null and person_id is null)
 
 All referenced rows must have the same `household_id`. Catalog-derived title, country and rule identity are not mutable user fields.
 
+### RuleCandidate
+
+A deterministic rule match is stored separately from an obligation. It has one subject, source provenance, a proposed schedule/reminder template and a decision state (`pending`, `accepted`, `dismissed`, `superseded`). Accepting creates and links a confirmed obligation; dismissing records actor/time without creating one. Candidates never enter reminders or calendar output.
+
 ### Rule and source
 
 The research registry is canonical editorial input. `Rule` keeps all applicability dimensions, typed condition expression, evidence state, specificity, effective dates and verification date. `Source` is normalized and connected through `RuleSource`.
@@ -124,18 +129,23 @@ Unknown timing is stored as null with an unresolved deadline type. It is never r
 - Public rules and sources are read-only and not tenant-scoped.
 - OAuth identity tokens and future calendar connector tokens are separate stores and scopes.
 
-## Static-state v5
+## Static-state v6
 
-The browser prototype mirrors the normalized graph with arrays for people, citizenships, country contexts, legal routes, route parties, person relationships, assets, asset jurisdictions, asset-person roles, issued documents and obligations. Helper selectors assemble view models; UI code does not edit nested person jurisdiction blobs.
+The browser workspace mirrors the normalized graph with arrays for people, citizenships, country contexts, legal routes, route parties, person relationships, assets, asset jurisdictions, asset-person roles, issued documents, rule candidates and obligations. Helper selectors assemble view models; UI code does not edit nested person jurisdiction blobs.
 
-The v4-to-v5 migration must:
+The v4/v5-to-v6 migration:
 
 1. split embedded citizenships and jurisdictions into normalized records;
 2. turn `ownerId` into an owner AssetPersonRole;
 3. assign obligation subject type from the old `assetId`/`subjectId` pair, preferring the asset when present;
 4. retain the old person as `responsible_person_id` when an asset was the subject;
 5. preserve catalog IDs, user dates, reminders and custom notes;
-6. leave ambiguous routes and dates unconfirmed rather than guessing.
+6. leaves ambiguous routes and dates unconfirmed rather than guessing;
+7. moves catalog matches with candidate applicability into `ruleCandidates`, while confirmed/custom items remain obligations.
+
+## Persistence bridge
+
+The authenticated SaaS currently persists the validated v6 workspace as a revisioned `household_snapshots` JSON document. This is an explicit migration bridge for cross-device sync and JSON import—not a replacement for the normalized tables. Writes require a household membership, same-origin request and optimistic revision match. The normalized PostgreSQL graph remains the long-term mutation model; reminders, candidates, feeds, audit and editorial revisions are already normalized.
 
 ## Field relevance matrix
 

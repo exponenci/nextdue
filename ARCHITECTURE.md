@@ -1,6 +1,6 @@
 # Architecture
 
-## Static beta
+## Static preview and authenticated workspace
 
 The deployed private preview is a buildless browser application with no runtime API or third-party dependency.
 
@@ -15,7 +15,9 @@ tracked obligation
 Plan / ICS export
 ```
 
-One versioned state object is stored in IndexedDB with a `localStorage` fallback. Catalog and localization data ship as static ES modules. JSON restore validates schema version, size, counts, categories, titles, dates, and reminder sequences before replacing state.
+The private static preview stores one versioned state object in IndexedDB with a `localStorage` fallback and intentionally resets on reload for product testing. The same workspace runs inside the authenticated Next.js SaaS, where validated v6 state is stored in a tenant-scoped PostgreSQL snapshot with optimistic revisions and cross-device sync. JSON restore is the migration/import path.
+
+Rule candidates are separate from obligations. Only explicit acceptance creates an obligation. Issued documents are first-class records and can create a linked expiry obligation from their printed validity date.
 
 `household_id` is always the tenant and authorization boundary. Possessions use repeatable jurisdiction records instead of one overloaded country, and link to people through explicit owner, co-owner, keeper, operator, taxpayer, or responsible-person roles. Every obligation has one primary subject (`household`, `person`, or `asset`) plus an optional responsible person; person and asset cannot both be the primary subject.
 
@@ -37,9 +39,9 @@ The matcher is intentionally constrained and explainable. High-risk items remain
 
 Recurring rules are expanded over a bounded 24-month window. All-day `VALUE=DATE` events avoid timezone shifts. Exports use stable UIDs, RFC 5545 escaping/folding, CRLF output, multiple `VALARM` reminders, and privacy-safe titles by default.
 
-## Static security boundary
+## Security boundary
 
-- No application network requests, analytics, ads, external fonts, or remote scripts.
+- The static preview makes no application network requests; the SaaS workspace calls same-origin authenticated APIs only.
 - Strict CSP and hosting headers.
 - Escaping before user-controlled values enter HTML.
 - Strict ISO date parsing and bounded imports.
@@ -58,13 +60,13 @@ Recurring rules are expanded over a bounded 24-month window. All-day `VALUE=DATE
 - one issued-document table with an explicit person or asset subject;
 - household → obligations with an explicit household/person/asset subject and a separate responsible person;
 - immutable registry rules/sources separated from the localized publishable overlay;
-- background reminder worker and idempotent delivery keys;
+- background reminder scheduling/delivery, person-to-user recipient mapping, notification preferences and idempotent delivery keys;
 - English, Russian, and Uzbek locale routing;
-- downloadable/subscribed ICS first, direct calendar OAuth later;
+- downloadable ICS plus hashed, rotatable, revocable private subscribed feeds; direct calendar OAuth later;
 - Render as the initial host, portable to other container platforms.
 
-Sign-in and calendar OAuth are separate. Calendar tokens require independent encryption and revocation. Production also requires audit logging, backup/restore drills, account export/deletion, rate limits, CSRF/origin checks, secure cookies, and jurisdiction-specific privacy/data-residency review.
+Sign-in and calendar access remain separate. Feed tokens are generated once, stored only as SHA-256 hashes and can be revoked. Tenant-scoped export/deletion, session revocation, same-origin writes and audit events are implemented. A public production launch still requires real OAuth credentials, a restricted runtime database role, backup/restore drills, rate limiting, sender-domain verification, monitoring and jurisdiction-specific privacy/data-residency review.
 
 ## Verification
 
-The automated suite covers registry counts and references, v4→v5 migration, subject invariants, multi-role assets, strict dates, month-end recurrence, route-aware Russia employment matching, EAEU exclusions, exact-vehicle checklists, slash reminder validation, bounded recurrence, ICS structure, and malformed backup rejection. Browser QA covers progressive context fields, Russia patent setup, Plan action groups and filters, per-country possessions, CRUD, all three registry tiers, and mobile/desktop layouts.
+The automated suite covers registry counts and references, v4/v5→v6 migration, candidate separation, subject invariants, multi-role assets, strict dates, month-end recurrence, route-aware Russia employment matching, EAEU exclusions, exact-vehicle checklists, slash reminder validation, subscribed/downloadable ICS structure, snapshot validation and malformed backup rejection. Browser QA includes the 624 px regression in addition to mobile and desktop layouts.

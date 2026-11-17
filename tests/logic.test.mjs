@@ -200,12 +200,23 @@ test("rules library exposes all evidence tiers without claiming every row is act
   assert.doesNotMatch(stylesSource, /\.coverage-card/);
 });
 
-test("rules library keeps compact actions visible and progressively discloses reference details", () => {
+test("rules library defaults to relevant ready rules and keeps other rules behind explicit filters", () => {
+  assert.match(appSource, /ruleFilters = \{ country: "all", mode: "ready"/);
+  assert.match(appSource, /function registryRuleMode/);
+  assert.match(appSource, /More ready rules/);
+  assert.match(appSource, /data-rule-mode=/);
+  assert.match(appSource, /Needs matching details/);
+  assert.doesNotMatch(appSource, /Add matching facts first/);
+});
+
+test("rules library keeps extra-compact actions visible and progressively discloses reference details", () => {
   assert.match(appSource, /class="catalog-card-state"/);
+  assert.match(appSource, /class="catalog-card-main"/);
   assert.match(appSource, /<details class="catalog-card-details">/);
   assert.match(appSource, /Official sources/);
   assert.match(appSource, /Facts to confirm/);
   assert.match(stylesSource, /\.catalog-card \{ min-height: 0;/);
+  assert.match(stylesSource, /\.catalog-card-main > \.compact \{ min-height: 32px;/);
   assert.doesNotMatch(stylesSource, /\.catalog-card \{ min-height: 305px;/);
 });
 

@@ -3,18 +3,18 @@ import {
   daysBetween, formatReminderSequence, generateICS, getCalendarEventCount, getItemStatus,
   getNextOccurrence, groupItemsForToday, makeItemFromCatalog,
   parseISODate, parseReminderSequence, sortItems, toISODate, validateBackup,
-} from "./logic.mjs?v=20261117-v1";
+} from "./logic.mjs?v=20261117-v2";
 import {
   CATALOG, CATALOG_REVIEWED_AT, CATALOG_VERSION, COUNTRY_META,
   catalogCountryName, localized, matchCatalog,
-} from "./catalog.mjs?v=20261117-v1";
-import { REGISTRY_COUNTS, REGISTRY_COUNTRIES, REGISTRY_RULES, REGISTRY_SOURCES } from "./registry.mjs?v=20261117-v1";
+} from "./catalog.mjs?v=20261117-v2";
+import { REGISTRY_COUNTS, REGISTRY_COUNTRIES, REGISTRY_RULES, REGISTRY_SOURCES } from "./registry.mjs?v=20261117-v2";
 import {
   ASSET_PERSON_ROLES, assetRolesFor, catalogGraph, citizenshipCodesFor, contextsFor,
   emptyDomainState, migrateDomainState, normalizeCatalogObligation, primaryAssetJurisdiction,
   primaryAssetPerson, routeForContext, validateSubject,
-} from "./domain.mjs?v=20261117-v1";
-import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261117-v1";
+} from "./domain.mjs?v=20261117-v2";
+import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261117-v2";
 
 const DB_NAME = "nextdue-local";
 const DB_VERSION = 1;
@@ -109,7 +109,7 @@ let setupDraft = {
 let activeView = "plan";
 let dbMode = "indexeddb";
 let planFilters = { view: "checklist", status: "all", country: "all", personId: "all", assetType: "all", assetId: "all", open: false };
-let ruleFilters = { country: "all", tier: "all", query: "", limit: 60 };
+let ruleFilters = { country: "all", mode: "ready", query: "", limit: 60 };
 let countryPickerTarget = null;
 const REGISTRY_SOURCE_BY_ID = new Map(REGISTRY_SOURCES.map((source) => [source.source_id, source]));
 const CATALOG_BY_REGISTRY_ID = new Map(CATALOG.map((entry) => [`published.${entry.id}`, entry]));
@@ -702,6 +702,25 @@ function assetCard(asset) {
   return `<article class="registry-card"><span class="item-icon category-${asset.type === "vehicle" ? "transport" : asset.type === "business" ? "tax" : asset.type}">${icon(meta.icon, 19)}</span><div><h3>${escapeHTML(displayAssetLabel(asset))}</h3><p>${assetTypeLabel(asset.type)} · ${COUNTRY_META[country]?.flag || "🌐"} ${countryName(country)}</p>${roles ? `<p>${escapeHTML(roles)}</p>` : `<p>${tx("No person role assigned", "Роль человека не назначена", "Shaxs roli belgilanmagan")}</p>`}<small>${state.items.filter((item) => item.assetId === asset.id).length} ${tx("linked obligations", "связанных обязанностей", "bog‘langan majburiyat")}</small></div><button class="icon-button" data-action="edit-asset" data-id="${asset.id}" aria-label="${tx("Edit", "Изменить", "Tahrirlash")}: ${escapeHTML(displayAssetLabel(asset))}">${icon("edit", 18)}</button></article>`;
 }
 
+function registryRuleContext(rule, trackedKeys, matchedCatalog, relatedCountries = []) {
+  const catalogEntry = CATALOG_BY_REGISTRY_ID.get(rule.rule_id);
+  const catalogMatches = catalogEntry ? matchedCatalog.filter((match) => match.entry.id === catalogEntry.id) : [];
+  const targets = catalogEntry?.match?.kind === "manual" && catalogEntry.subjectType === "person"
+    ? state.people.map((person) => ({ entry: catalogEntry, subjectId: person.id, assetId: null }))
+    : catalogMatches;
+  const availableTargets = catalogEntry ? targets.filter((target) => !trackedKeys.has(catalogItemKey(catalogEntry.id, target.subjectId, target.assetId))) : [];
+  const matched = catalogMatches.length > 0;
+  const tracked = targets.length > 0 && availableTargets.length === 0;
+  const eligible = availableTargets.length > 0;
+  const relevant = matched || tracked || relatedCountries.includes(rule.destination_country);
+  return { catalogEntry, availableTargets, matched, tracked, eligible, relevant };
+}
+
+function registryRuleMode(rule, context) {
+  if (rule.runtime_tier !== "ready") return rule.runtime_tier;
+  return context.tracked || (context.eligible && context.relevant) ? "ready" : "more";
+}
+
 function renderCatalog() {
   const trackedKeys = new Set([
     ...state.items.filter((item) => item.catalogId).map((item) => catalogItemKey(item.catalogId, itemPersonId(item), itemAssetId(item))),
@@ -709,13 +728,19 @@ function renderCatalog() {
   ]);
   const matched = matchCatalog(catalogGraph(state));
   const related = [...new Set([...(state.citizenships || []).map((record) => record.country), ...(state.countryContexts || []).map((record) => record.country), ...(state.assetJurisdictions || []).map((record) => record.country)])];
+  const contexts = new Map(REGISTRY_RULES.map((rule) => [rule.rule_id, registryRuleContext(rule, trackedKeys, matched, related)]));
   const normalizedQuery = ruleFilters.query.trim().toLocaleLowerCase(state.locale);
-  const filtered = REGISTRY_RULES.filter((rule) => {
+  const baseFiltered = REGISTRY_RULES.filter((rule) => {
     if (ruleFilters.country !== "all" && rule.destination_country !== ruleFilters.country) return false;
-    if (ruleFilters.tier !== "all" && rule.runtime_tier !== ruleFilters.tier) return false;
     if (!normalizedQuery) return true;
     return [rule.requirement_name, rule.notes, rule.route_code, rule.requirement_type].filter(Boolean).join(" ").toLocaleLowerCase(state.locale).includes(normalizedQuery);
-  }).sort((a, b) => {
+  });
+  const modeCounts = baseFiltered.reduce((counts, rule) => {
+    counts.all += 1;
+    counts[registryRuleMode(rule, contexts.get(rule.rule_id))] += 1;
+    return counts;
+  }, { ready: 0, more: 0, confirm: 0, research: 0, all: 0 });
+  const filtered = baseFiltered.filter((rule) => ruleFilters.mode === "all" || registryRuleMode(rule, contexts.get(rule.rule_id)) === ruleFilters.mode).sort((a, b) => {
     const relatedOrder = Number(related.includes(b.destination_country)) - Number(related.includes(a.destination_country));
     if (relatedOrder) return relatedOrder;
     const tierOrder = { ready: 0, confirm: 1, research: 2 };
@@ -727,7 +752,17 @@ function renderCatalog() {
   const countryOptions = REGISTRY_COUNTRIES.slice().sort((a, b) => countryName(a.code).localeCompare(countryName(b.code), state.locale)).map((country) => `<option value="${country.code}" ${ruleFilters.country === country.code ? "selected" : ""}>${country.flag} ${escapeHTML(countryName(country.code))} · ${REGISTRY_RULES.filter((rule) => rule.destination_country === country.code).length}</option>`).join("");
   const relatedButtons = related.map((country) => `<button class="${ruleFilters.country === country ? "active" : ""}" data-country-filter="${country}">${flagForCountry(country)} ${countryName(country)}</button>`).join("");
   const more = visible.length < filtered.length ? `<button class="secondary-button full catalog-load-more" data-action="show-more-rules">${tx(`Show ${Math.min(60, filtered.length - visible.length)} more`, `Показать ещё ${Math.min(60, filtered.length - visible.length)}`, `Yana ${Math.min(60, filtered.length - visible.length)} ta ko‘rsatish`)}</button>` : "";
-  return `${viewHeader(tx("42-country registry", "Реестр по 42 странам", "42 mamlakat reyestri"), tx("Rules library", "Библиотека правил", "Qoidalar kutubxonasi"), tx("Verified rules, route mappings, and research guidance are shown separately. Related countries come first.", "Проверенные правила, карты оснований и исследовательские ориентиры разделены. Связанные страны идут первыми.", "Tekshirilgan qoidalar, yo‘nalish xaritalari va tadqiqot ko‘rsatmalari alohida. Tegishli mamlakatlar birinchi."), "none")}<aside class="catalog-scope-note">${icon("info", 18)}<p>${tx("Only verified exact rules can create a trackable candidate automatically. Partial mappings request confirmation; research guidance never creates a deadline.", "Автоматически отслеживаемый кандидат создаётся только из проверенного точного правила. Частичные карты требуют подтверждения; исследовательские ориентиры не создают сроки.", "Faqat tekshirilgan aniq qoida avtomatik kuzatiladigan nomzod yaratadi. Qisman xaritalar tasdiq talab qiladi; tadqiqot ko‘rsatmasi muddat yaratmaydi.")}</p></aside><div class="catalog-summary"><strong>${visible.length} ${tx("of", "из", "dan")} ${filtered.length} ${tx("matching records", "подходящих записей", "mos yozuv")}</strong><span>${REGISTRY_COUNTS.rules} ${tx("registry records", "записей реестра", "reyestr yozuvi")} · ${REGISTRY_COUNTS.sources} ${tx("official sources", "официальных источников", "rasmiy manba")}</span></div><div class="rules-tier-tabs">${[["all", tx("All", "Все", "Barchasi"), REGISTRY_COUNTS.rules], ["ready", tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor"), REGISTRY_COUNTS.ready], ["confirm", tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak"), REGISTRY_COUNTS.confirm], ["research", tx("Research guidance", "Ориентиры", "Tadqiqot yo‘riqnomasi"), REGISTRY_COUNTS.research]].map(([tier, label, count]) => `<button class="${ruleFilters.tier === tier ? "active" : ""}" data-rule-tier="${tier}">${label} · ${count}</button>`).join("")}</div><div class="rules-filter-bar"><label><span>${tx("Search", "Поиск", "Qidirish")}</span><input type="search" id="rule-search" value="${escapeHTML(ruleFilters.query)}" placeholder="${tx("Document, route, tax, vehicle…", "Документ, основание, налог, транспорт…", "Hujjat, asos, soliq, transport…")}"></label><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select id="rule-country"><option value="all">${tx("All 42 countries", "Все 42 страны", "Barcha 42 mamlakat")}</option>${countryOptions}</select></label></div>${relatedButtons ? `<div class="related-country-buttons"><span>${tx("Related", "Связанные", "Tegishli")}</span><button class="${ruleFilters.country === "all" ? "active" : ""}" data-country-filter="all">${tx("All", "Все", "Barchasi")}</button>${relatedButtons}</div>` : ""}<div class="catalog-grid">${visible.map((rule) => registryRuleCard(rule, trackedKeys, matched)).join("")}</div>${more}${!filtered.length ? `<div class="mini-empty"><p>${tx("No registry records match these filters.", "По этим фильтрам записей нет.", "Bu filtrlarga mos yozuv yo‘q.")}</p></div>` : ""}`;
+  const modes = [
+    ["ready", tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor")],
+    ["more", tx("More ready rules", "Другие готовые правила", "Boshqa tayyor qoidalar")],
+    ["confirm", tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak")],
+    ["research", tx("Research guidance", "Ориентиры", "Tadqiqot yo‘riqnomasi")],
+    ["all", tx("All", "Все", "Barchasi")],
+  ];
+  const emptyMessage = ruleFilters.mode === "ready"
+    ? tx("Nothing else is ready for this profile. Open “More ready rules” to see which details are missing.", "Для этого профиля больше нет готовых правил. Откройте «Другие готовые правила», чтобы увидеть, каких данных не хватает.", "Bu profil uchun boshqa tayyor qoida yo‘q. Yetishmayotgan ma’lumotlarni ko‘rish uchun “Boshqa tayyor qoidalar”ni oching.")
+    : tx("No registry records match these filters.", "По этим фильтрам записей нет.", "Bu filtrlarga mos yozuv yo‘q.");
+  return `${viewHeader(tx("42-country registry", "Реестр по 42 странам", "42 mamlakat reyestri"), tx("Rules library", "Библиотека правил", "Qoidalar kutubxonasi"), tx("Ready rules for your current profile appear first. The full legal registry remains available through the filters.", "Сначала показаны готовые правила для текущего профиля. Полный правовой реестр доступен через фильтры.", "Avval joriy profil uchun tayyor qoidalar ko‘rsatiladi. To‘liq huquqiy reyestr filtrlarda mavjud."), "none")}<aside class="catalog-scope-note">${icon("info", 18)}<p>${tx("Only verified exact rules can create a trackable candidate automatically. Partial mappings request confirmation; research guidance never creates a deadline.", "Автоматически отслеживаемый кандидат создаётся только из проверенного точного правила. Частичные карты требуют подтверждения; исследовательские ориентиры не создают сроки.", "Faqat tekshirilgan aniq qoida avtomatik kuzatiladigan nomzod yaratadi. Qisman xaritalar tasdiq talab qiladi; tadqiqot ko‘rsatmasi muddat yaratmaydi.")}</p></aside><div class="catalog-summary"><strong>${visible.length} ${tx("of", "из", "dan")} ${filtered.length} ${tx("matching records", "подходящих записей", "mos yozuv")}</strong><span>${REGISTRY_COUNTS.rules} ${tx("registry records", "записей реестра", "reyestr yozuvi")} · ${REGISTRY_COUNTS.sources} ${tx("official sources", "официальных источников", "rasmiy manba")}</span></div><div class="rules-tier-tabs">${modes.map(([mode, label]) => `<button class="${ruleFilters.mode === mode ? "active" : ""}" data-rule-mode="${mode}" aria-pressed="${ruleFilters.mode === mode}">${label} · ${modeCounts[mode]}</button>`).join("")}</div><div class="rules-filter-bar"><label><span>${tx("Search", "Поиск", "Qidirish")}</span><input type="search" id="rule-search" value="${escapeHTML(ruleFilters.query)}" placeholder="${tx("Document, route, tax, vehicle…", "Документ, основание, налог, транспорт…", "Hujjat, asos, soliq, transport…")}"></label><label><span>${tx("Country", "Страна", "Mamlakat")}</span><select id="rule-country"><option value="all">${tx("All 42 countries", "Все 42 страны", "Barcha 42 mamlakat")}</option>${countryOptions}</select></label></div>${relatedButtons ? `<div class="related-country-buttons"><span>${tx("Related", "Связанные", "Tegishli")}</span><button class="${ruleFilters.country === "all" ? "active" : ""}" data-country-filter="all">${tx("All", "Все", "Barchasi")}</button>${relatedButtons}</div>` : ""}<div class="catalog-grid">${visible.map((rule) => registryRuleCard(rule, contexts.get(rule.rule_id))).join("")}</div>${more}${!filtered.length ? `<div class="mini-empty"><p>${emptyMessage}</p></div>` : ""}`;
 }
 
 function catalogTargetValue(target) { return `${target.subjectId || ""}|${target.assetId || ""}`; }
@@ -736,23 +771,15 @@ function catalogTargetLabel(target) {
   return personName(target.subjectId);
 }
 
-function registryRuleCard(rule, trackedKeys, matchedCatalog) {
-  const catalogEntry = CATALOG_BY_REGISTRY_ID.get(rule.rule_id);
-  const catalogMatches = catalogEntry ? matchedCatalog.filter((match) => match.entry.id === catalogEntry.id) : [];
-  const targets = catalogEntry?.match?.kind === "manual" && catalogEntry.subjectType === "person"
-    ? state.people.map((person) => ({ entry: catalogEntry, subjectId: person.id, assetId: null }))
-    : catalogMatches;
-  const availableTargets = catalogEntry ? targets.filter((target) => !trackedKeys.has(catalogItemKey(catalogEntry.id, target.subjectId, target.assetId))) : [];
-  const matched = catalogMatches.length > 0;
-  const tracked = targets.length > 0 && availableTargets.length === 0;
-  const eligible = availableTargets.length > 0;
+function registryRuleCard(rule, context) {
+  const { catalogEntry, availableTargets, matched, tracked, eligible } = context;
   const title = catalogEntry ? localized(catalogEntry.title, state.locale) : rule.requirement_name;
   const summary = catalogEntry ? localized(catalogEntry.summary, state.locale) : rule.notes || rule.exceptions?.[0] || tx("Open the official sources and confirm the exact applicability facts.", "Откройте официальные источники и подтвердите точные условия применимости.", "Rasmiy manbalarni ochib aniq shartlarni tasdiqlang.");
   const tierLabel = rule.runtime_tier === "ready" ? tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor") : rule.runtime_tier === "confirm" ? tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak") : tx("Research guidance", "Ориентир для исследования", "Tadqiqot yo‘riqnomasi");
   const sources = (rule.source_ids || []).map((sourceId) => REGISTRY_SOURCE_BY_ID.get(sourceId)).filter(Boolean);
   const exceptions = (rule.exceptions || []).filter(Boolean);
   const evidence = (rule.required_evidence || []).filter(Boolean);
-  const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : eligible ? tx("Add to plan", "Добавить в план", "Rejaga qo‘shish") : rule.runtime_tier === "ready" ? tx("Add matching facts first", "Сначала добавьте подходящие факты", "Avval mos ma’lumotlarni qo‘shing") : tierLabel;
+  const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : tx("Add to plan", "Добавить в план", "Rejaga qo‘shish");
   const targetControl = availableTargets.length > 1 ? `<label class="catalog-target"><span>${tx("Add for", "Добавить для", "Kim uchun")}</span><select data-catalog-target="${catalogEntry.id}">${availableTargets.map((target) => `<option value="${escapeHTML(catalogTargetValue(target))}">${escapeHTML(catalogTargetLabel(target))}</option>`).join("")}</select></label>` : "";
   const targetValue = availableTargets.length === 1 ? catalogTargetValue(availableTargets[0]) : "";
   const facts = [
@@ -762,8 +789,10 @@ function registryRuleCard(rule, trackedKeys, matchedCatalog) {
     [t(state.locale, "lastReviewed"), rule.last_verified],
   ].filter(([, value]) => value);
   const detailList = (titleText, values) => values.length ? `<section class="catalog-detail-section"><h3>${titleText}</h3><ul>${values.map((value) => `<li>${escapeHTML(String(value).replaceAll("_", " "))}</li>`).join("")}</ul></section>` : "";
-  const action = catalogEntry ? `<button class="${eligible && !tracked ? "primary-button" : "secondary-button"} compact" data-action="add-catalog" data-id="${catalogEntry.id}" data-target="${escapeHTML(targetValue)}" ${tracked || !eligible ? "disabled" : ""}>${buttonLabel}</button>` : `<span class="rule-permission">${buttonLabel}</span>`;
-  return `<article class="catalog-card rule-tier-${rule.runtime_tier} ${matched ? "matched" : ""}" data-catalog-country="${rule.destination_country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(rule.destination_country)} ${countryName(rule.destination_country)}</span><div class="catalog-card-state">${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : ""}<span class="confidence tier-${rule.runtime_tier}">${tierLabel}</span></div></div><h2>${escapeHTML(title)}</h2><div class="catalog-card-command">${targetControl}${action}</div><details class="catalog-card-details"><summary>${tx("Details", "Подробнее", "Tafsilotlar")}</summary><div class="catalog-card-detail-body"><section class="catalog-detail-section"><h3>${tx("Description", "Описание", "Tavsif")}</h3><p>${escapeHTML(summary)}</p></section><dl>${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHTML(String(value).replaceAll("_", " "))}</dd></div>`).join("")}</dl>${sources.length ? `<section class="catalog-detail-section"><h3>${tx("Official sources", "Официальные источники", "Rasmiy manbalar")}</h3><div class="source-links">${sources.map((source) => `<a href="${escapeHTML(source.url)}" target="_blank" rel="noopener">${icon("external", 15)} ${escapeHTML(source.authority)}</a>`).join("")}</div></section>` : ""}${detailList(tx("Check applicability", "Проверить применимость", "Tegishliligini tekshiring"), exceptions)}${detailList(tx("Facts to confirm", "Что подтвердить", "Tasdiqlanadigan ma’lumotlar"), evidence)}</div></details></article>`;
+  const action = catalogEntry && (eligible || tracked)
+    ? `<button class="${eligible && !tracked ? "primary-button" : "secondary-button"} compact" data-action="add-catalog" data-id="${catalogEntry.id}" data-target="${escapeHTML(targetValue)}" ${tracked ? "disabled" : ""}>${buttonLabel}</button>`
+    : rule.runtime_tier === "ready" ? `<span class="rule-permission">${tx("Needs matching details", "Нужны подходящие данные", "Mos ma’lumotlar kerak")}</span>` : "";
+  return `<article class="catalog-card rule-tier-${rule.runtime_tier} ${matched ? "matched" : ""}" data-catalog-country="${rule.destination_country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(rule.destination_country)} ${countryName(rule.destination_country)}</span><div class="catalog-card-state">${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : ""}<span class="confidence tier-${rule.runtime_tier}">${tierLabel}</span></div></div><div class="catalog-card-main"><h2>${escapeHTML(title)}</h2>${action}</div>${targetControl}<details class="catalog-card-details"><summary>${tx("Details", "Подробнее", "Tafsilotlar")}</summary><div class="catalog-card-detail-body"><section class="catalog-detail-section"><h3>${tx("Description", "Описание", "Tavsif")}</h3><p>${escapeHTML(summary)}</p></section><dl>${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHTML(String(value).replaceAll("_", " "))}</dd></div>`).join("")}</dl>${sources.length ? `<section class="catalog-detail-section"><h3>${tx("Official sources", "Официальные источники", "Rasmiy manbalar")}</h3><div class="source-links">${sources.map((source) => `<a href="${escapeHTML(source.url)}" target="_blank" rel="noopener">${icon("external", 15)} ${escapeHTML(source.authority)}</a>`).join("")}</div></section>` : ""}${detailList(tx("Check applicability", "Проверить применимость", "Tegishliligini tekshiring"), exceptions)}${detailList(tx("Facts to confirm", "Что подтвердить", "Tasdiqlanadigan ma’lumotlar"), evidence)}</div></details></article>`;
 }
 
 function renderSettings() {
@@ -1372,7 +1401,7 @@ document.addEventListener("click", async (event) => {
   if (action === "choose-country") applyCountryPick(target.dataset.country);
   if (action === "set-plan-view") { planFilters.view = target.dataset.value; render(); }
   if (action === "set-plan-status") { planFilters.status = target.dataset.value; render(); }
-  if (action === "set-rule-tier") { ruleFilters.tier = target.dataset.value; ruleFilters.limit = 60; render(); }
+  if (action === "set-rule-mode") { ruleFilters.mode = target.dataset.value; ruleFilters.limit = 60; render(); }
   if (action === "show-more-rules") { ruleFilters.limit += 60; render(); }
   if (action === "toggle-plan-filters") { planFilters.open = !planFilters.open; render(); }
   if (action === "clear-plan-filter") { planFilters[target.dataset.filter] = "all"; render(); }
@@ -1429,7 +1458,7 @@ document.addEventListener("keydown", (event) => {
 });
 document.addEventListener("click", (event) => {
   const filter = event.target.closest("[data-country-filter]"); if (filter) filterCatalog(filter.dataset.countryFilter);
-  const tier = event.target.closest("[data-rule-tier]"); if (tier) { ruleFilters.tier = tier.dataset.ruleTier; ruleFilters.limit = 60; render(); }
+  const mode = event.target.closest("[data-rule-mode]"); if (mode) { ruleFilters.mode = mode.dataset.ruleMode; ruleFilters.limit = 60; render(); }
 });
 
 document.querySelector("#delete-item").addEventListener("click", async () => {

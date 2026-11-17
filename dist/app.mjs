@@ -3,18 +3,18 @@ import {
   daysBetween, formatReminderSequence, generateICS, getCalendarEventCount, getItemStatus,
   getNextOccurrence, groupItemsForToday, makeItemFromCatalog,
   parseISODate, parseReminderSequence, sortItems, toISODate, validateBackup,
-} from "./logic.mjs?v=20261116-v2";
+} from "./logic.mjs?v=20261117-v1";
 import {
   CATALOG, CATALOG_REVIEWED_AT, CATALOG_VERSION, COUNTRY_META,
   catalogCountryName, localized, matchCatalog,
-} from "./catalog.mjs?v=20261116-v2";
-import { REGISTRY_COUNTS, REGISTRY_COUNTRIES, REGISTRY_RULES, REGISTRY_SOURCES } from "./registry.mjs?v=20261116-v2";
+} from "./catalog.mjs?v=20261117-v1";
+import { REGISTRY_COUNTS, REGISTRY_COUNTRIES, REGISTRY_RULES, REGISTRY_SOURCES } from "./registry.mjs?v=20261117-v1";
 import {
   ASSET_PERSON_ROLES, assetRolesFor, catalogGraph, citizenshipCodesFor, contextsFor,
   emptyDomainState, migrateDomainState, normalizeCatalogObligation, primaryAssetJurisdiction,
   primaryAssetPerson, routeForContext, validateSubject,
-} from "./domain.mjs?v=20261116-v2";
-import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261116-v2";
+} from "./domain.mjs?v=20261117-v1";
+import { SUPPORTED_LOCALES, t } from "./i18n.mjs?v=20261117-v1";
 
 const DB_NAME = "nextdue-local";
 const DB_VERSION = 1;
@@ -750,10 +750,20 @@ function registryRuleCard(rule, trackedKeys, matchedCatalog) {
   const summary = catalogEntry ? localized(catalogEntry.summary, state.locale) : rule.notes || rule.exceptions?.[0] || tx("Open the official sources and confirm the exact applicability facts.", "Откройте официальные источники и подтвердите точные условия применимости.", "Rasmiy manbalarni ochib aniq shartlarni tasdiqlang.");
   const tierLabel = rule.runtime_tier === "ready" ? tx("Ready to track", "Готово к отслеживанию", "Kuzatishga tayyor") : rule.runtime_tier === "confirm" ? tx("Needs confirmation", "Нужно уточнение", "Tasdiq kerak") : tx("Research guidance", "Ориентир для исследования", "Tadqiqot yo‘riqnomasi");
   const sources = (rule.source_ids || []).map((sourceId) => REGISTRY_SOURCE_BY_ID.get(sourceId)).filter(Boolean);
+  const exceptions = (rule.exceptions || []).filter(Boolean);
+  const evidence = (rule.required_evidence || []).filter(Boolean);
   const buttonLabel = tracked ? tx("Tracked", "В плане", "Rejada") : eligible ? tx("Add to plan", "Добавить в план", "Rejaga qo‘shish") : rule.runtime_tier === "ready" ? tx("Add matching facts first", "Сначала добавьте подходящие факты", "Avval mos ma’lumotlarni qo‘shing") : tierLabel;
   const targetControl = availableTargets.length > 1 ? `<label class="catalog-target"><span>${tx("Add for", "Добавить для", "Kim uchun")}</span><select data-catalog-target="${catalogEntry.id}">${availableTargets.map((target) => `<option value="${escapeHTML(catalogTargetValue(target))}">${escapeHTML(catalogTargetLabel(target))}</option>`).join("")}</select></label>` : "";
   const targetValue = availableTargets.length === 1 ? catalogTargetValue(availableTargets[0]) : "";
-  return `<article class="catalog-card rule-tier-${rule.runtime_tier} ${matched ? "matched" : ""}" data-catalog-country="${rule.destination_country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(rule.destination_country)} ${countryName(rule.destination_country)}</span>${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : `<span class="confidence tier-${rule.runtime_tier}">${tierLabel}</span>`}</div><h2>${escapeHTML(title)}</h2><p>${escapeHTML(summary)}</p><dl><div><dt>${tx("Type", "Тип", "Turi")}</dt><dd>${escapeHTML(rule.rule_specificity.replaceAll("_", " "))}</dd></div><div><dt>${t(state.locale, "lastReviewed")}</dt><dd>${rule.last_verified}</dd></div></dl>${targetControl}<div class="catalog-card-actions"><div class="source-links">${sources.slice(0, 2).map((source) => `<a href="${escapeHTML(source.url)}" target="_blank" rel="noopener">${icon("external", 15)} ${escapeHTML(source.authority)}</a>`).join("")}</div>${catalogEntry ? `<button class="${eligible && !tracked ? "primary-button" : "secondary-button"} compact" data-action="add-catalog" data-id="${catalogEntry.id}" data-target="${escapeHTML(targetValue)}" ${tracked || !eligible ? "disabled" : ""}>${buttonLabel}</button>` : `<span class="rule-permission">${buttonLabel}</span>`}</div></article>`;
+  const facts = [
+    [tx("Type", "Тип", "Turi"), rule.rule_specificity],
+    [tx("Requirement", "Требование", "Talab"), rule.requirement_type],
+    [tx("Cadence", "Периодичность", "Davriylik"), rule.recurrence],
+    [t(state.locale, "lastReviewed"), rule.last_verified],
+  ].filter(([, value]) => value);
+  const detailList = (titleText, values) => values.length ? `<section class="catalog-detail-section"><h3>${titleText}</h3><ul>${values.map((value) => `<li>${escapeHTML(String(value).replaceAll("_", " "))}</li>`).join("")}</ul></section>` : "";
+  const action = catalogEntry ? `<button class="${eligible && !tracked ? "primary-button" : "secondary-button"} compact" data-action="add-catalog" data-id="${catalogEntry.id}" data-target="${escapeHTML(targetValue)}" ${tracked || !eligible ? "disabled" : ""}>${buttonLabel}</button>` : `<span class="rule-permission">${buttonLabel}</span>`;
+  return `<article class="catalog-card rule-tier-${rule.runtime_tier} ${matched ? "matched" : ""}" data-catalog-country="${rule.destination_country}"><div class="catalog-card-top"><span class="country-badge">${flagForCountry(rule.destination_country)} ${countryName(rule.destination_country)}</span><div class="catalog-card-state">${matched ? `<span class="match-badge">${icon("check", 13)} ${tx("For you", "Для вас", "Siz uchun")}</span>` : ""}<span class="confidence tier-${rule.runtime_tier}">${tierLabel}</span></div></div><h2>${escapeHTML(title)}</h2><div class="catalog-card-command">${targetControl}${action}</div><details class="catalog-card-details"><summary>${tx("Details", "Подробнее", "Tafsilotlar")}</summary><div class="catalog-card-detail-body"><section class="catalog-detail-section"><h3>${tx("Description", "Описание", "Tavsif")}</h3><p>${escapeHTML(summary)}</p></section><dl>${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHTML(String(value).replaceAll("_", " "))}</dd></div>`).join("")}</dl>${sources.length ? `<section class="catalog-detail-section"><h3>${tx("Official sources", "Официальные источники", "Rasmiy manbalar")}</h3><div class="source-links">${sources.map((source) => `<a href="${escapeHTML(source.url)}" target="_blank" rel="noopener">${icon("external", 15)} ${escapeHTML(source.authority)}</a>`).join("")}</div></section>` : ""}${detailList(tx("Check applicability", "Проверить применимость", "Tegishliligini tekshiring"), exceptions)}${detailList(tx("Facts to confirm", "Что подтвердить", "Tasdiqlanadigan ma’lumotlar"), evidence)}</div></details></article>`;
 }
 
 function renderSettings() {
